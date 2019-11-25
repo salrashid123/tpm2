@@ -1,12 +1,19 @@
 package main
 
 /*
-  Import a Google CLoud Service Account in a TPM.
+  Import a PEM file or Google CLoud Service Account in a TPM as a persistent handle
 
-  This utility is approximately the equivalent of the following (svc_account.p12 is a GCP service account):
+  This utility is approximately the equivalent of the following TPM2 commands:
 
-	openssl pkcs12 -in svc_account.p12  -nocerts -nodes -passin pass:notasecret | openssl rsa -out private.pem
-	openssl rsa -in privkey.pem -outform PEM -pubout -out public.pem
+    To import GCP ServiceAccount .p12 file:
+  	  openssl pkcs12 -in svc_account.p12  -nocerts -nodes -passin pass:notasecret | openssl rsa -out private.pem
+
+	To import PEM file
+	  openssl genrsa -out private.pem 2048
+
+
+	openssl rsa -in private.pem -outform PEM -pubout -out public.pem
+
 	tpm2_createprimary -C o -g sha256 -G rsa -c primary.ctx
 	tpm2_import -C primary.ctx -G rsa -i private.pem -u key.pub -r key.prv
 	tpm2_load -C primary.ctx -u key.pub -r key.prv -c key.ctx
@@ -14,6 +21,8 @@ package main
 
 
 	go run main.go --serviceAccountFile svc_account.p12 --primaryFileName=primary.bin --keyFileName=key.bin --logtostderr=1 -v 10
+
+	go run main.go --pemFile private.pem --primaryFileName=primary.bin --keyFileName=key.bin --logtostderr=1 -v 10
 */
 
 import (
@@ -65,6 +74,7 @@ var (
 	tpmPath            = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
 	keyHandle          = flag.Int("handle", 0x81010002, "Handle value")
 	serviceAccountFile = flag.String("serviceAccountFile", "", "ServiceAccount .p12 file")
+	pemFile            = flag.String("pemFile", "", "Private key PEM format file")
 	primaryFileName    = flag.String("primaryFileName", "", "Path to save the PrimaryContext.")
 	keyFileName        = flag.String("keyFileName", "", "Path to save the KeyFile.")
 )
@@ -72,28 +82,50 @@ var (
 func main() {
 
 	flag.Parse()
-	if *serviceAccountFile == "" {
-		glog.Fatalf("serviceAccountFile pfx/p12 file must be specified")
+	if *serviceAccountFile == "" && *pemFile == "" {
+		glog.Fatalf("serviceAccountFile pfx/p12 or PEM formatted private key file must be specified")
+	}
+	if *serviceAccountFile != "" && *pemFile != "" {
+		glog.Fatalf("Specify _either_ serviceAccountFile= or pemFile=")
 	}
 
 	glog.V(2).Infof("======= Init ========")
 
-	glog.V(2).Infof("======= Converting ServiceAccount Key to PEM ========")
-	data, err := ioutil.ReadFile(*serviceAccountFile)
+	var pv *rsa.PrivateKey
 
-	if err != nil {
-		glog.Fatalf("     Unable to read serviceAccountFile %v", err)
+	if *serviceAccountFile != "" {
+		glog.V(2).Infof("======= Converting ServiceAccount Key to PEM ========")
+		data, err := ioutil.ReadFile(*serviceAccountFile)
+
+		if err != nil {
+			glog.Fatalf("     Unable to read serviceAccountFile %v", err)
+		}
+
+		privateKey, certificate, err := pkcs12.Decode(data, defaultPassword)
+		if err != nil {
+			glog.Fatalf("     Unable to Parse pkcs12 file %v", err)
+		}
+		pv = privateKey.(*rsa.PrivateKey)
+
+		glog.V(8).Infof("     Certificate Subject %s", certificate.Subject)
+		glog.V(8).Infof("     Public Key Size: %d", pv.Public().(*rsa.PublicKey).Size())
 	}
 
-	privateKey, certificate, err := pkcs12.Decode(data, defaultPassword)
-	if err != nil {
-		glog.Fatalf("     Unable to Parse pkcs12 file %v", err)
+	if *pemFile != "" {
+		data, err := ioutil.ReadFile(*pemFile)
+
+		if err != nil {
+			glog.Fatalf("     Unable to read serviceAccountFile %v", err)
+		}
+		block, _ := pem.Decode(data)
+		if block == nil {
+			glog.Fatalf("     Failed to decode PEM block containing the key %v", err)
+		}
+		pv, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+		if err != nil {
+			glog.Fatalf("     Failed to parse PEM block containing the key %v", err)
+		}
 	}
-
-	pv := privateKey.(*rsa.PrivateKey)
-
-	glog.V(8).Infof("     Certificate Subject %s", certificate.Subject)
-	glog.V(8).Infof("     Public Key Size: %d", pv.Public().(*rsa.PublicKey).Size())
 
 	rwc, err := tpm2.OpenTPM(*tpmPath)
 	if err != nil {
@@ -278,17 +310,18 @@ func main() {
 
 	glog.V(5).Infof("     Evicting Persistent Handle at %v ", fmt.Sprintf("%x", *keyHandle))
 	pHandle := tpmutil.Handle(*keyHandle)
-	err = tpm2.EvictControl(rwc, emptyPassword, tpm2.HandleOwner, pHandle, pHandle)
-	if err != nil {
-		glog.Fatalf("     Unable evict persistentHandle: %v", err)
-	}
+
+	// err = tpm2.EvictControl(rwc, emptyPassword, tpm2.HandleOwner, pHandle, pHandle)
+	// if err != nil {
+	// 	glog.Infof("     Unable evict persistentHandle: %v ", err)
+	// }
 
 	err = tpm2.EvictControl(rwc, emptyPassword, tpm2.HandleOwner, pH, pHandle)
 	if err != nil {
 		glog.Fatalf("     Unable to set persistentHandle: %v", err)
 	}
 	defer tpm2.FlushContext(rwc, pHandle)
-	glog.V(2).Infof("     ServiceAccount key persisted")
+	glog.V(2).Infof("     key persisted")
 
 	// dataToSign := []byte("secret")
 	// digest := sha256.Sum256(dataToSign)

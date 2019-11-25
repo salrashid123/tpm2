@@ -34,7 +34,7 @@ Also shown equivalent use of `go-tpm` library set.
 - `ek_import_blob`: Transfer secret from one TPM to another using ekPub only. Example only covers `go-tpm` based transfer (TODO: figure out the `tpm2_tools` flow).
 
 - `utils`:  Utility functions
-    - Import Google Cloud Service account .p12 file into a TPM as a persistent handle.
+    - Import Google Cloud Service account .p12 file  or any generic privateKey PEM into a TPM as a persistent handle.
     - Convert PEM formatted key to TPM2-tools format.
 
 ### Usage
