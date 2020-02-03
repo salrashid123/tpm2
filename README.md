@@ -130,6 +130,38 @@ $ openssl engine -t -c tpm2tss
 
 ### Appendix
 
+
+#### Envelope encryption using openssl
+
+```bash
+KEK: Asymmetric
+DEK: Symmetric
+    openssl genrsa -out KEK.pem 2048
+    openssl rsa -in KEK.pem -outform PEM -pubout -out KEK_PUBLIC.pem
+    echo "thepassword" > secrets.txt
+
+    openssl rand 128 > DEK.key
+    openssl enc -aes-256-cbc -salt -pbkdf2 -in secrets.txt -out secrets.txt.enc -pass file:./DEK.key
+
+    openssl rsautl -encrypt -inkey KEK_PUBLIC.pem -pubin -in DEK.key -out DEK.key.enc
+
+    openssl rsautl -decrypt -inkey KEK.pem -in DEK.key.enc -out DEK.key.ptext
+    openssl enc -d -aes-256-cbc -pbkdf2 -in secrets.txt.enc -out secrets.txt.ptext  -pass file:./DEK.key.ptext
+    more secrets.txt.ptext
+
+KEK: Symmetric
+DEK: Symmetric
+    openssl rand 128 > kek.key
+    openssl rand 128 > dek.key
+
+    openssl enc -pbkdf2 -in secrets.txt -out secrets.txt.enc -aes-256-cbc -pass file:./dek.key
+    openssl enc -pbkdf2 -in dek.key -out dek.key.enc -aes-256-cbc --pass file:./kek.key
+
+    openssl enc -d -aes-256-cbc -pbkdf2 -in dek.key.enc -out dek.key.ptext  -pass file:./kek.key
+    openssl enc -d -aes-256-cbc -pbkdf2 -in secrets.txt.enc -out secrets.txt.ptext  -pass file:./dek.key.ptext
+
+```
+
 #### References/Links
 
 - [googe cloud credentials TPMTokenSource](https://github.com/salrashid123/oauth2#tpmtokensource)

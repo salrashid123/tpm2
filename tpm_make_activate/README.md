@@ -1,5 +1,6 @@
 # Make-Activate Credential 
 
+- [https://tpm2-software.github.io/tpm2-tss/getting-started/2019/12/18/Remote-Attestation.html](https://tpm2-software.github.io/tpm2-tss/getting-started/2019/12/18/Remote-Attestation.html)
 - [https://sourceforge.net/projects/ibmtpm20acs/](https://sourceforge.net/projects/ibmtpm20acs/)
 - [https://github.com/google/go-attestation/blob/master/docs/credential-activation.md](https://github.com/google/go-attestation/blob/master/docs/credential-activation.md)
 
