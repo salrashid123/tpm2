@@ -33,6 +33,8 @@ Also shown equivalent use of `go-tpm` library set.
 
 - `ek_import_blob`: Transfer secret from one TPM to another using ekPub only. Example only covers `go-tpm` based transfer (TODO: figure out the `tpm2_tools` flow).
 
+- `ek_import_rsa_blob`: Transfer RSA key from your local system to a GCP vTPM using its ekPub only. Example only covers `go-tpm` based transfer.  For example, use this mechanism to transfer a Service Account Private key securely such that the key on the vTPM cannot be exported but yet available to sign and authenticate.
+
 - `utils`:  Utility functions
     - Import Google Cloud Service account .p12 file  or any generic privateKey PEM into a TPM as a persistent handle.
     - Convert PEM formatted key to TPM2-tools format.
