@@ -64,13 +64,18 @@ $ tpm2_readpublic -c A-ak.ctx
 Note that the `name` matches what we had on the shieldedVM (`000badac1a2beb5d2b28f5d141f0a63098ab9b728d31094db016c24666e25ce7c774`)
 
 
->> Convert A-ek.pem --> A-ek.pub
+>> On GCP:
+Convert PEM format of EKPub to TPM2 tools struct file:  A-ek.pem --> A-ek.pub
+You can get A-ek.pem on Google cloud by using the `gcloud` cli:
+  `gcloud compute instances get-shielded-identity instance-1 --format="value(encryptionKey.ekPub)" > A-ek.pem`
+Then convert from PEM to TPM format using this utility:
+   [ptmtotss.go](https://github.com/salrashid123/tpm2/blob/master/utils/pemtotss.go)
 
 
 
 ### MakeCredential
 
-Use the key "name" defined earlier and the converted `ek.pub` to seal the secret.  You are not using the TPM (`-T none`) 
+Use the key "name" defined earlier and the converted `A-ek.pub` to seal the secret.  You are not using the TPM (`-T none`) 
 
 
 ```bash

@@ -45,6 +45,8 @@ On your laptop:
 https://gist.github.com/salrashid123/a252d76235d334de2ea7b849695a6f58
 
 ```bash
+go get github.com/google/go-tpm-tools@b83096c36b800c24881b650c3762c046c7457162
+
 $ go run laptop/main.go  \
     --rsaKeyFile=svc_account.p12 \
     --sealedOutput=sealed.dat \

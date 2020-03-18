@@ -2,8 +2,11 @@ package main
 
 import (
 	"flag"
+	"strconv"
+	"strings"
 
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"io/ioutil"
 
@@ -25,6 +28,8 @@ var (
 	ekPubFile      = flag.String("ekPubFile", "", "ekPub file in PEM format")
 	sealedDataFile = flag.String("sealedDataFile", "", "sealedDataFile file")
 	secret         = flag.String("secret", "meet me at...", "secret")
+	pcrsValues     = flag.String("pcrValues", "", "SHA256 PCR Values to seal against 23:=foo,20=bar.")
+	pcrMap         = map[uint32][]byte{}
 )
 
 func main() {
@@ -35,6 +40,31 @@ func main() {
 		if *ekPubFile == "" || *sealedDataFile == "" {
 			glog.Fatalf("ekPubFile and sealedDataFile must be specified for sealing")
 		}
+
+		if *pcrsValues != "" {
+			entries := strings.Split(*pcrsValues, ",")
+			pcrMap = make(map[uint32][]byte)
+			for _, e := range entries {
+				parts := strings.Split(e, "=")
+				u, err := strconv.ParseUint(parts[0], 10, 64)
+				if err != nil {
+					glog.Fatalf("Error parsing uint64->32: %v\n", err)
+				}
+
+				hv, err := hex.DecodeString(parts[1])
+				if err != nil {
+					glog.Fatalf("Error parsing uint64->32: %v\n", err)
+				}
+				pcrMap[uint32(u)] = hv
+
+				rr := hex.Dump(hv)
+				glog.V(10).Infof("PCR key: %v\n", uint32(u))
+				glog.V(10).Infof("PCR Values: %v\n", rr)
+
+			}
+			glog.V(10).Infof("PCR Values: %v\n", pcrMap)
+		}
+
 		pubPEMData, err := ioutil.ReadFile(*ekPubFile)
 		if err != nil {
 			glog.Fatalf("Unable to read ekpub: %v", err)
@@ -43,7 +73,13 @@ func main() {
 		pub, _ := x509.ParsePKIXPublicKey(block.Bytes)
 
 		mySecret := []byte(*secret)
-		blob, err := server.CreateImportBlob(pub, mySecret)
+		var pcrs *pb.Pcrs
+		if len(pcrMap) == 0 {
+			pcrs = nil
+		} else {
+			pcrs = &pb.Pcrs{Hash: pb.HashAlgo_SHA256, Pcrs: pcrMap}
+		}
+		blob, err := server.CreateImportBlob(pub, mySecret, pcrs)
 		if err != nil {
 			glog.Fatalf("Unable to CreateImportBlob : %v", err)
 		}
@@ -84,7 +120,7 @@ func main() {
 		if err != nil {
 			glog.Fatal("unmarshaling error: ", err)
 		}
-		myDecodedSecret, err := ek.Import(rwc, blob)
+		myDecodedSecret, err := ek.Import(blob)
 		glog.Infof("Unsealed secret: %v", string(myDecodedSecret))
 		if err != nil {
 			glog.Fatalf("Unable to Import sealed data: %v", err)

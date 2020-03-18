@@ -15,8 +15,6 @@ import (
 
 	"io/ioutil"
 
-	"golang.org/x/crypto/pkcs12"
-
 	"github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 	pb "github.com/google/go-tpm-tools/proto"
@@ -31,7 +29,7 @@ const (
 var (
 	ekPubFile    = flag.String("ekPubFile", "ek.pem", "Path to the ekPubFile PEM).")
 	pcrsValues   = flag.String("pcrValues", "", "SHA256 PCR Values to seal against 23:=foo,20=bar.")
-	rsaKeyFile   = flag.String("rsaKeyFile", "svc_account.p12", "Path to RSA  Service account Private p12 file")
+	rsaKeyFile   = flag.String("rsaKeyFile", "private_nopass.pem", "Path to RSA  Service account Private PEM file")
 	sealedOutput = flag.String("sealedOutput", "sealed.dat", "Filename to save the sealed RSA Private .")
 	pcrMap       = map[uint32][]byte{}
 )
@@ -102,18 +100,16 @@ func createSigningKeyImportBlob(ekPubFile string, rsaKeyFile string, sealedOutpu
 
 	glog.V(2).Infof("======= Loading Service Account RSA Key ========")
 
-	keyBytes, err := ioutil.ReadFile(rsaKeyFile)
+	privPemBytes, err := ioutil.ReadFile(rsaKeyFile)
 	if err != nil {
 		glog.Fatalf("Unable to read rsaKeyFile: %v", err)
 	}
 
-	privateKey, _, err := pkcs12.Decode(keyBytes, defaultP12Password)
+	privBlock, _ := pem.Decode(privPemBytes)
+
+	signingKey, err := x509.ParsePKCS1PrivateKey(privBlock.Bytes)
 	if err != nil {
-		glog.Fatalf("Unable to generate key %v", err)
-	}
-	signingKey, ok := privateKey.(*rsa.PrivateKey)
-	if !ok {
-		glog.Fatalf("Unable to generate key %v", err)
+		glog.Fatalf("Unable to read read rsa PrivateKey: %v", err)
 	}
 
 	glog.V(2).Infof("======= Generating Test Signature ========")
