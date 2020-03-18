@@ -26,9 +26,11 @@ var handleNames = map[string][]tpm2.HandleType{
 }
 
 var (
-	mode              = flag.String("mode", "", "createKey,makeCredential,activateCredential")
-	secret            = flag.String("secret", "meet me at...", "secret")
-	keyName           = flag.String("keyName", "", "KeyName")
+	mode   = flag.String("mode", "", "createKey,makeCredential,activateCredential")
+	secret = flag.String("secret", "meet me at...", "secret")
+	// keyName           = flag.String("keyName", "", "KeyName")
+	ekPubFilepub      = flag.String("ekPubFile", "ek.bin", "ekPub file")
+	akPubFile         = flag.String("akPubFile", "akPub.bin", "akPub file")
 	tpmPath           = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
 	pcr               = flag.Int("pcr", -1, "PCR to seal data to. Must be within [0, 23].")
 	defaultEKTemplate = tpm2.Public{
@@ -190,6 +192,16 @@ func createKeys(pcr int, tpmPath string) (n string, retErr error) {
 	glog.V(2).Infof("ekPub Name: %v", hex.EncodeToString(name))
 	glog.V(2).Infof("ekPub: \n%v", string(ekPubPEM))
 
+	glog.V(2).Infof("======= Write (ekPub) ========")
+	ekPubBytes, err := tpmEkPub.Encode()
+	if err != nil {
+		glog.Fatalf("Save failed for ekPubWire: %v", err)
+	}
+	err = ioutil.WriteFile("ekPub.bin", ekPubBytes, 0644)
+	if err != nil {
+		glog.Fatalf("Save failed for ekPub: %v", err)
+	}
+
 	glog.V(2).Infof("======= CreateKeyUsingAuth ========")
 
 	sessCreateHandle, _, err := tpm2.StartAuthSession(
@@ -320,14 +332,19 @@ func makeCredential(pcr int, tpmPath string, sec string) (retErr error) {
 		}
 	}
 
-	glog.V(2).Infof("======= ContextLoad (ek) ========")
-	ekhBytes, err := ioutil.ReadFile("ek.bin")
+	glog.V(2).Infof("======= Load (ekPub.bin) ========")
+	ekhBytes, err := ioutil.ReadFile("ekPub.bin")
 	if err != nil {
-		glog.Fatalf("ContextLoad failed for ekh: %v", err)
+		glog.Fatalf("Read failed for ekPub.bin: %v", err)
 	}
-	ekh, err := tpm2.ContextLoad(rwc, ekhBytes)
+	ePub, err := tpm2.DecodePublic(ekhBytes)
 	if err != nil {
-		glog.Fatalf("ContextLoad failed for ekh: %v", err)
+		glog.Fatalf("Error DecodePublic AK %v", ePub)
+	}
+
+	ekh, keyName, err := tpm2.LoadExternal(rwc, ePub, tpm2.Private{}, tpm2.HandleNull)
+	if err != nil {
+		glog.Fatalf("Error loadingExternal EK %v", err)
 	}
 	defer tpm2.FlushContext(rwc, ekh)
 
