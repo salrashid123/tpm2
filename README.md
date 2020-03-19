@@ -80,19 +80,6 @@ git clone https://github.com/tpm2-software/tpm2-tss.git
 ```
 
 ```bash
-sudo useradd --system --user-group tss
-cd
-git clone https://github.com/tpm2-software/tpm2-abrmd.git
-  cd tpm2-abrmd
-  git fetch && git fetch --tags && git checkout 2.2.0
-  ./bootstrap
-  ./configure --enable-unit --with-dbuspolicydir=/etc/dbus-1/system.d
-  dbus-launch make check
-  sudo make install
-```
-
-
-```bash
 cd
 git clone https://github.com/tpm2-software/tpm2-tools.git
   cd tpm2-tools
@@ -103,6 +90,23 @@ git clone https://github.com/tpm2-software/tpm2-tools.git
   make install
 ```
 
+
+#### Install tpm2-tss openssl engine
+
+This step is optional an only do this if you intend to use openssl w/ the TPM as the `engine`
+
+
+```bash
+sudo useradd --system --user-group tss
+cd
+git clone https://github.com/tpm2-software/tpm2-abrmd.git
+  cd tpm2-abrmd
+  git fetch && git fetch --tags && git checkout 2.2.0
+  ./bootstrap
+  ./configure --enable-unit --with-dbuspolicydir=/etc/dbus-1/system.d
+  dbus-launch make check
+  sudo make install
+```
 
 ```bash
 cd
@@ -129,6 +133,13 @@ $ openssl engine -t -c tpm2tss
         tpm2_flushcontext --saved-session
         tpm2_flushcontext --transient-object
 ```
+
+
+### mTLS with TPM
+
+Git repo demonstrating running mTLS using go-tpm and nginx webserver:
+
+- [golang TLS with Trusted Platform Module (TPM) based keys](https://github.com/salrashid123/go_tpm_https)
 
 ### Appendix
 
