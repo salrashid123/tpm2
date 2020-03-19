@@ -13,18 +13,20 @@ For more information, see
 
 ### Setup
 
-1. On your laptop, generate a service account key in `.p12` format:
+1. On your laptop, generate a service account key in `JSON` format:
 
 ```
- gcloud iam service-accounts keys  create svc_account.p12 --iam-account=service@project.iam.gserviceaccount.com --key-file-type=p12
+ gcloud iam service-accounts keys  create svc_account.json --iam-account=service@project.iam.gserviceaccount.com 
 ```
 
-Note down the `KEY_ID` value (we will use this later):
+Extract the PEM portion, remove the passphrase and note down the KEYID:
 
 ```bash
- gcloud iam service-accounts keys list --iam-account=service@project.iam.gserviceaccount.com --key-file-type=p12
-KEY_ID                                    CREATED_AT            EXPIRES_AT
-55a30e8ac10526cbaa6721d63f0ecce8bbffbe19  2020-02-29T14:30:52Z  9999-12-31T23:59:59Z
+cat svc_account.json | jq -r '.private_key' > private.pem
+openssl rsa -in private.pem -out private_nopass.pem
+KEY_ID=`cat svc_account.json | jq -r '.private_key_id'`
+$ echo $KEY_ID
+
 ```
 
 2. Assign this service account IAM permissions to read pubsub topics and list buckets on a given project
@@ -45,24 +47,23 @@ On your laptop:
 ```cd transfer/```
 
 ```bash
-go get github.com/google/go-tpm-tools@b83096c36b800c24881b650c3762c046c7457162
 
 $ go run laptop/main.go  \
-    --rsaKeyFile=svc_account.p12 \
+    --rsaKeyFile=private_nopass.pem \
     --sealedOutput=sealed.dat \
-    --ekPubFile=ek.pem 
-    --v=2 -alsologtostderr
+    --ekPubFile=ek.pem --v=2 -alsologtostderr
 ```
 
 ```
-I0303 07:41:42.484676  109663 main.go:83] ======= Init createSigningKeyImportBlob ========
-I0303 07:41:42.484852  109663 main.go:85] ======= Loading ekPub ========
-I0303 07:41:42.484907  109663 main.go:103] ======= Loading Service Account RSA Key ========
-I0303 07:41:42.556167  109663 main.go:119] ======= Generating Test Signature ========
-I0303 07:41:42.557731  109663 main.go:132] Signature: %sEr0UFqzpQtqX3PQjCrelMO0v+PRiGtJ8srs+AR/C6Iwf3WRV4FYuj+lzdGJjxF/udwwU+E/chCodxnHKV3tqUs9O6iNVb0OHQV64orJnkcxdf/d6XmJgH/7oY3bssVltmV4YO4a5n6YZR69TjtL+srLF+O5JeVMzFSwDgbsYFaI67BTH3Bqr2jnoL01Imrvr5cFQX2USs1S4l0EIstfGObWP8qIiSX88c1dXz/74sjYtTKMD3J++nfzGdJOA7nyss0TwRQQHP8yPJcDUnswmWlICn9mXZm2r2FW1hByDO3HenxBbjpD6iUOtABfvruBPBMZmlowKpTnrbN8c2rNP4A==
-I0303 07:41:42.557741  109663 main.go:134] ======= CreateSigningKeyImportBlob for RSA Key: ========
-I0303 07:41:42.557862  109663 main.go:146] ======= Saving sealedkey ========
-I0303 07:41:42.558033  109663 main.go:156] Sealed data to file.. sealed.dat
+$ go run laptop/main.go      --rsaKeyFile=private_nopass.pem     --sealedOutput=sealed.dat     --ekPubFile=ek.pem  --v=2 -alsologtostderr
+I0314 17:00:48.672933  176804 main.go:81] ======= Init createSigningKeyImportBlob ========
+I0314 17:00:48.673160  176804 main.go:83] ======= Loading ekPub ========
+I0314 17:00:48.673223  176804 main.go:101] ======= Loading Service Account RSA Key ========
+I0314 17:00:48.673324  176804 main.go:115] ======= Generating Test Signature ========
+I0314 17:00:48.675523  176804 main.go:128] Signature: %se3TcMAqognfqeMdSukkYBAgBoHZw3td/azrH9XhzYtfABukueB3rvVvkBwHfChfY65Hja2JA4rsycJYrnD9D7M5DIsDjbQ1ZwGdvxQrFzqro9xvFL621B8teNQDESe75Gj1hrmR//xMXhN7TftB+6GgVoeyPV8WXhfpdUUw7tZG1Xygun3HCfclO4f/adtwFOB4PF8EM9YIZCaZRg2Sp7wTn7VNQ+4K5vpebblcxwvO1/gi9Wlt+oQyn1jYgMS0i1y8Ej0URlBEPumZKjpJTHJkhMxHgBSfjf/0CrkDMLgIz8mzhQraAXdBWAsL4n7PwX9t+hLcbxXYDVMwG49cxaA==
+I0314 17:00:48.675538  176804 main.go:130] ======= CreateSigningKeyImportBlob for RSA Key: ========
+I0314 17:00:48.675708  176804 main.go:142] ======= Saving sealedkey ========
+I0314 17:00:48.675823  176804 main.go:152] Sealed data to file.. sealed.dat
 ```
 
 6. Transfer `sealed.dat` to the ShieldedVM
@@ -82,13 +83,16 @@ On shieldedVM:
 ```
 
 ```
-I0303 12:42:20.814394   15582 main.go:51] ======= Init importSigningKey ========
-I0303 12:42:20.863589   15582 main.go:73] Handle 0x80000000 flushed
-I0303 12:42:20.863765   15582 main.go:86] ======= Loading EndorsementKeyRSA ========
-I0303 12:42:20.869754   15582 main.go:93] ======= Loading sealedkey ========
-I0303 12:42:20.870095   15582 main.go:104] ======= Loading ImportSigningKey ========
-I0303 12:42:20.913702   15582 main.go:135] ======= Signing Data with Key Handle ========
-I0303 12:42:20.922954   15582 main.go:186] Signature: %sEr0UFqzpQtqX3PQjCrelMO0v+PRiGtJ8srs+AR/C6Iwf3WRV4FYuj+lzdGJjxF/udwwU+E/chCodxnHKV3tqUs9O6iNVb0OHQV64orJnkcxdf/d6XmJgH/7oY3bssVltmV4YO4a5n6YZR69TjtL+srLF+O5JeVMzFSwDgbsYFaI67BTH3Bqr2jnoL01Imrvr5cFQX2USs1S4l0EIstfGObWP8qIiSX88c1dXz/74sjYtTKMD3J++nfzGdJOA7nyss0TwRQQHP8yPJcDUnswmWlICn9mXZm2r2FW1hByDO3HenxBbjpD6iUOtABfvruBPBMZmlowKpTnrbN8c2rNP4A==
+$ sudo ./import   --importSigningKeyFile=sealed.dat   --keyHandleOutputFile=key.dat   --flush=all   --v=10 -alsologtostderr
+I0314 21:05:14.931044    5943 main.go:51] ======= Init importSigningKey ========
+I0314 21:05:14.945527    5943 main.go:73] Handle 0x3000000 flushed
+I0314 21:05:14.948445    5943 main.go:86] ======= Loading EndorsementKeyRSA ========
+I0314 21:05:14.954194    5943 main.go:93] ======= Loading sealedkey ========
+I0314 21:05:14.954412    5943 main.go:104] ======= Loading ImportSigningKey ========
+I0314 21:05:14.976636    5943 main.go:111] ======= Saving Key Handle========
+I0314 21:05:14.987044    5943 main.go:124] ======= Loading Key Handle ========
+I0314 21:05:14.995937    5943 main.go:136] ======= Signing Data with Key Handle ========
+I0314 21:05:15.003742    5943 main.go:181] Test Signature: e3TcMAqognfqeMdSukkYBAgBoHZw3td/azrH9XhzYtfABukueB3rvVvkBwHfChfY65Hja2JA4rsycJYrnD9D7M5DIsDjbQ1ZwGdvxQrFzqro9xvFL621B8teNQDESe75Gj1hrmR//xMXhN7TftB+6GgVoeyPV8WXhfpdUUw7tZG1Xygun3HCfclO4f/adtwFOB4PF8EM9YIZCaZRg2Sp7wTn7VNQ+4K5vpebblcxwvO1/gi9Wlt+oQyn1jYgMS0i1y8Ej0URlBEPumZKjpJTHJkhMxHgBSfjf/0CrkDMLgIz8mzhQraAXdBWAsL4n7PwX9t+hLcbxXYDVMwG49cxaA==
 ```
 
 The outputfile, `key.dat` is just a handle to the embedded key.  It does not contain the raw key material.
@@ -103,16 +107,21 @@ Compile and access either gcs or pubsub using the embedded key:
 
 eg. using my keyID and service account/project
 
-```cd gcp/```
 
 ```bash
-go run gcp/main.go  \
-  --mode=pubsub \
-  --keyHandleFile=key.dat \
-  --serviceAccountEmail=service@project.iam.gserviceaccount.com \
-  --keyId=55a30e8ac10526cbaa6721d63f0ecce8bbffbe19 \
-  --projectId=your-project \
-  --v=2 -alsologtostderr
+cd gcp/
+go get cloud.google.com/go/storage github.com/golang/glog github.com/google/go-tpm/tpm2 github.com/salrashid123/oauth2/google google.golang.org/api/iterator google.golang.org/api/option
+
+
+$ cat sa-3.json | jq -r '.private_key_id'
+   30566a119f1f03cdb9e5c076a0aceba073b6352d
+
+$ cat sa-3.json | jq -r '.client_email'
+   sa-3-reader@shared-project-271117.iam.gserviceaccount.com
+   
+sudo ./gcp    --mode=gcs   --keyHandleFile=key.dat   --serviceAccountEmail=sa-3-reader@shared-project-271117.iam.gserviceaccount.com  --keyId=30566a119f1f03cdb9e5c076a0aceba073b6352d    --projectId=shared-project-271117  --bucketName=shared-project-271117-shared-bucket  --objectName=somefile.txt  --dest=somefile.txt
+
+2020/03/14 21:20:14 Wrote 14 bytes.
 ```
 
 ---
