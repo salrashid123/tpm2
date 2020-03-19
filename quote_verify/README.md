@@ -165,8 +165,25 @@ I0319 11:55:54.124907   29733 main.go:106] keyNameBytes  000bbcb80f17f265cc5e2f2
 
 Note, PCR Value `23` is: `f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b`
 
+```bash
+# ls
+akPriv.bin  akPub.bin  attest.bin  ek.bin  ekPub.bin  go.mod  go.sum  main.go
+```
 
 #### Quote
+
+Transfer `akPub.bin` `ek.bin` to your laptop which wants to make the VM quote
+
+If using Google CLoud, you can extract the public RSA key from `ek.bin` and compare that to
+`$  gcloud compute instances get-shielded-identity sev-instance-1  --format="value(encryptionKey.ekPub)"`
+
+(that will ensure the `ek.bin` is really from the VM in question)
+
+Pick a one time nonce (below its `foo` and request a quote that returns pcr value `23`)
+(TODO: the code below does not support multiple PCR registers in the quote...)
+
+
+On the shieldedVM, run:
 
 ```bash
 # go run main.go --mode quote --secret=foo  --pcr 23 --logtostderr=1 -v 5
@@ -184,19 +201,16 @@ I0319 11:56:02.252133   29779 main.go:411] ======= Write (attestion) ========
 I0319 11:56:02.252239   29779 main.go:417] ======= Write (sig) ========
 ```
 
+Quote key serialized into `attest.bin`, the RSA Signature is `sig.bin` (as rsa256)
 ```bash
 # ls 
 akPriv.bin  akPub.bin  attest.bin  ek.bin  ekPub.bin  go.mod  go.sum  main.go  sig.bin
 ```
 
-Quote key serialized into `attest.bin`, the RSA Signature is `sig.bin` (as rsa256)
 
-```bash
-# ls
-akPriv.bin  akPub.bin  attest.bin  ek.bin  ekPub.bin  go.mod  go.sum  main.go
-```
+#### Verify
 
-#### Verfy
+Return `attest.bin` and `sig.bin` back to the laptop and verify the signature and that the attestation includes the nonce, pcr value you expect
 
 ```bash
 # go run main.go --mode verify --secret=foo  --pcr 23 --logtostderr=1 -v 5
