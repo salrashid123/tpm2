@@ -126,13 +126,99 @@ Verified OK
 
 ---
 
+## Quote-verify using go-tpm-tools
 
-```
-#  go run main.go  --logtostderr=1 -v 5
-I1029 04:07:21.922679   14775 main.go:33] ======= Init  ========
-I1029 04:07:21.934420   14775 main.go:60] 0 handles flushed
-I1029 04:07:21.935881   14775 main.go:71] PCR 0xc00001a3c8 Value 9efde052aa15429fae05bad4d0b1d7c64da64d03d7a1854a588c2cb8430c0d30 
-I1029 04:07:21.941757   14775 main.go:82] quotebytes Data /1RDR4AYACIAC+6hIym6ZK7gz/aKn53se41qkXBu7XKVZ46iCU4AnVmXAA1tZWV0IG1lIGF0Li4uAAAAACW9ivkAAAACAAAAAAEgFgURABYoAAAAAAEACwMAAIAAILrrP1/09VuidJqUmTz5iDMxmWRg1EvU8UWibaQs+kNx
-I1029 04:07:21.941892   14775 main.go:83] Signature data:  gmxBOvO4l4eOSkg6ckKHgMOqA9tSuH+BNvNZhE8/F2qbH0LQbSPCMvIGixhom6Q6CLT5rUtGYFD0dLwXtHp+uujalNW0MDY2IQlK6qkSP8zHF8c+wtzujYOxfeyqRTMFDrsyB+gyZ07AnEOUSbi1Q9gm32eNhyk5dta03jrbhgaSQSl0AdW60gxertLgnapaaoPWHuk2K/S6D0uoCQGNhmq6Z1e6QbHkVU4YQHUP6CuMrpVw1QQ0lVlolY6sNImZ4APd1LjzlaBtgsHdoFpSgH5Jus1PeZRq4iDmJDrBKycFNmVYb6VykZDQwloNmoiX4P6ZVZ4CUveqYPiOwt2VRw
+The following code *ONLY* support RSA256 
 
+#### Create Ek,AK (one time)
+
+```bash
+# go run main.go --mode createKey --pcr 23 --logtostderr=1 -v 5
+I0319 11:55:53.731509   29733 main.go:127] ======= Init CreateKeys ========
+I0319 11:55:53.749752   29733 main.go:149] Handle 0x80000000 flushed
+I0319 11:55:53.749774   29733 main.go:154] 1 handles flushed
+I0319 11:55:53.751422   29733 main.go:161] PCR 23 Value f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b 
+I0319 11:55:53.751444   29733 main.go:166] ======= createPrimary ========
+I0319 11:55:53.884118   29733 main.go:198] ekPub Name: 000bae2e4d564b3592c3781c6e774ffb8ca680f9d103b80c1ab1aa058e5f2b1412f7
+I0319 11:55:53.884143   29733 main.go:199] ekPub: 
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArjhtibVGL6gGSFhTfUxl
+O3KOrmqfbXnx/T8pVu2eKvUofGJw+gqn87371svPk+qz/zsF3cSnKU+/3r4Ldwka
+zRlKKSPSpWj4bj+Em+xylZ5rzOKpY2HOyyo+F3/iwHNHh8pFU/+vCSIDGr23kIzr
+TzBi2JMQBvV6B+5x+QwCKxf/DT/ae4ezzT+7XzUlYINZIQugSp1vtY7keBY/h+YK
+94rXASg/ol1jc2BDSUltUVgDuHbia+b9SM0dh9L0JjylleqxUlP+mfMsW+S4tQHg
+Y8l62mjsu7NNccDDktnpgxkVBgi4xdwXj3leABkJ3wRKOomEu6RgX9ThQrsWb5xy
+jQIDAQAB
+-----END PUBLIC KEY-----
+I0319 11:55:53.884157   29733 main.go:201] ======= Write (ekPub) ========
+I0319 11:55:53.884232   29733 main.go:211] ======= CreateKeyUsingAuth ========
+I0319 11:55:54.095693   29733 main.go:237] akPub: 0001000b00050072000000100014000b0800000000000100e57e9203052ddafd87321545967029ce7fa4c4fc4236de8590665fe28333647daefcd23643bcbbfb1d825bf9298052300d1f6863a488cc4bb73a0ebbb9f1df108e536b214a946504682e8fa280e472e59507b179eaf28e3d5bec954233d6c6e85baef395763d8de2d87d8aeb53d56e1d0388f6adc0b02ba4e61fea4da9006395984624e6a315ff963a28aa0ae22c4ac4dba9feb1634949762467b0016c7e52ce6147d68b926d958f1094f25cfeb60c973ee85610c347acf75dbaff6797a2d90fa9da72899fa79a457ef0f412d205b4a5ab2eb9d95efecd36df61ba69aa3220b548b412d834fc58e3543e093575ab6559be64cd701060dcdb2d48b252315bcb17,
+I0319 11:55:54.095729   29733 main.go:238] akPriv: 0020e64016d1338df161f96adfd7e088dc31d4924bf9f227236c99d49f7d2e8617aa0010fb27676b91d0f3783351fd59ce441fe83ece7de6a2c09e6fb6b43a0a44e0086855511e9c9aa5968f7c3aac8c295bec46b6383a05dfcd3cab5138bbe61a1be54783eb1d2dd5f5ece2a9c5e2cdf69d2ca1987ecbec8377da4c6e0d6e83e2d4ba817ccc06d4708730970cdfabc0d5068947a3a1c5a958e2633f06d3c520d71e381c4c06dcf6521bafbb311305cbfede1410b4fe5578d7c994eb74b610a8f3602323fb76a9d76f63b5fdcd49cd7c3d4be49be6abdcbc704ac20c5f4f,
+I0319 11:55:54.095763   29733 main.go:249] ======= ContextSave (ek) ========
+I0319 11:55:54.105000   29733 main.go:260] ======= ContextLoad (ek) ========
+I0319 11:55:54.112180   29733 main.go:270] ======= LoadUsingAuth ========
+I0319 11:55:54.119754   29733 main.go:298] ak keyName 000bbcb80f17f265cc5e2f234e5fa0d3279769863fa016dec2e5ff4cd836353ac08d
+I0319 11:55:54.119779   29733 main.go:300] ======= Write (akPub) ========
+I0319 11:55:54.119840   29733 main.go:305] ======= Write (akPriv) ========
+I0319 11:55:54.124907   29733 main.go:106] keyNameBytes  000bbcb80f17f265cc5e2f234e5fa0d3279769863fa016dec2e5ff4cd836353ac08d
 ```
+
+Note, PCR Value `23` is: `f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b`
+
+
+#### Quote
+
+```bash
+# go run main.go --mode quote --secret=foo  --pcr 23 --logtostderr=1 -v 5
+I0319 11:56:02.214666   29779 main.go:314] ======= init Quote ========
+I0319 11:56:02.229965   29779 main.go:341] ======= Load (ek.bin) ========
+I0319 11:56:02.237925   29779 main.go:351] ======= Read (akPub) ========
+I0319 11:56:02.237963   29779 main.go:356] ======= Read (akPriv) ========
+I0319 11:56:02.237981   29779 main.go:362] ======= LoadUsingAuth ========
+I0319 11:56:02.245049   29779 main.go:390] ak keyName 000bbcb80f17f265cc5e2f234e5fa0d3279769863fa016dec2e5ff4cd836353ac08d
+I0319 11:56:02.245068   29779 main.go:392] ======= Start Quote ========
+I0319 11:56:02.246645   29779 main.go:399] PCR 23 Value f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b 
+I0319 11:56:02.252078   29779 main.go:408] Quote Hex ff54434780180022000b5b1bd215e8585f3b528c297a2f2fbe435d87c38d5f2eef135c4d3277d963ae180003666f6f000000000732e39b000000020000000001201605110016280000000001000b030000800020e2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf9
+I0319 11:56:02.252119   29779 main.go:409] Quote Sig 0c3cdc350c19392a0c7d106456d997cac614637d54f502541afc0045cbbdf503b4d04f1911fd99ca16dcbc6df181532d1fda7797ebfc57fe8c865d87628c37f0749d79a76be2f1d19d2692e5069fea5f55b84347f3c02a5927fea918a6b6cb3115fcead4c07a8c04123ed1332b744dd5989443079fca5c66ccf4073cc37b7ecf4fa9d5201b11a15b0b99b88a998520d2ac9522bba7dbd885ba57fb81e0ba09b2ed826ab0319c6b6ee1eac464f177f43eab2ac651f9cafd4023094e4c75201f87677437c41ded4791e7216b17fd54067b90c2882e8b7de81375ef04bf7f3a79b5de77e18c82fae1280dfb325910143ffca8848a4989f21472d071e342c22f164c
+I0319 11:56:02.252133   29779 main.go:411] ======= Write (attestion) ========
+I0319 11:56:02.252239   29779 main.go:417] ======= Write (sig) ========
+```
+
+```bash
+# ls 
+akPriv.bin  akPub.bin  attest.bin  ek.bin  ekPub.bin  go.mod  go.sum  main.go  sig.bin
+```
+
+Quote key serialized into `attest.bin`, the RSA Signature is `sig.bin` (as rsa256)
+
+```bash
+# ls
+akPriv.bin  akPub.bin  attest.bin  ek.bin  ekPub.bin  go.mod  go.sum  main.go
+```
+
+#### Verfy
+
+```bash
+# go run main.go --mode verify --secret=foo  --pcr 23 --logtostderr=1 -v 5
+I0319 11:56:09.811280   29825 main.go:427] ======= init Quote ========
+I0319 11:56:09.828184   29825 main.go:449] Handle 0x80000000 flushed
+I0319 11:56:09.829854   29825 main.go:458] PCR 23 Value f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b 
+I0319 11:56:09.829875   29825 main.go:460] ======= Read (akPub) ========
+I0319 11:56:09.829908   29825 main.go:466] ======= LoadUsingAuth ========
+I0319 11:56:09.829922   29825 main.go:468] ======= Read and Decode(attestion) ========
+I0319 11:56:09.829965   29825 main.go:478] Attestation ExtraData (nonce) foo 
+I0319 11:56:09.830017   29825 main.go:479] Attestation PCR# [23] 
+I0319 11:56:09.830036   29825 main.go:480] Attestation Hash# e2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf9 
+I0319 11:56:09.830043   29825 main.go:482] ======= Read (sig) ========
+I0319 11:56:09.830076   29825 main.go:494] original PCR Value: f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b        --> %!x(MISSING)
+I0319 11:56:09.830096   29825 main.go:495] sha256 of original PCR Value: --> e2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf9
+I0319 11:56:09.830113   29825 main.go:497] ======= Decoding Public ========
+I0319 11:56:09.830238   29825 main.go:508] Attestation Verified 
+```
+
+Note the nonce `foo` we set earlier is included inside the attestation which also echos the PCR (its hash, rather). eg
+
+PCR Value for 23 is `f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b`
+sha356has of that is `e2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf9`  (which is what we got in the attestation)
+
+Finally, (and critically) we used the akPublic key to verify the attestation object is signed by the AK we already setup.
