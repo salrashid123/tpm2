@@ -22,27 +22,27 @@ measure func=FILE_MMAP uid=1001 pcr=23
 measure func=FILE_CHECK uid=1001 pcr=23
 ```
 
-So  first set a binding PCR value as root (uid=0)
-
-```bash
-root@shielded-1:~# tpm2_pcrread sha256:23
+Login as root, check pcr23:
+```
+root@tpm-a:~# tpm2_pcrread sha256:23
 sha256:
-  23: 0xC52B960075A08DCEC51678896BE3EC4761FBC2FEBEB0C325E21E30AEC560246F
-root@shielded-1:~# exit
-logout
+  23: 0x1722810108259E0E3BFE4D88D0828281958B4B2267ADDF6DD6A59267326C2BA1
 ```
 
-Then as uid=1001, simply type data and check the PCR value:
-
+As uid=10001 simply type `date`
 ```
-srashid@shielded-1:~$ date
-Fri Dec 27 02:01:27 UTC 2019
+srashid@tpm-a:~$ date
+Mon Mar 23 14:48:40 UTC 2020
+```
 
-srashid@shielded-1:~$ sudo su -
-
-root@shielded-1:~# tpm2_pcrread sha256:23
+Check the pcr23 value again:
+```
+# tpm2_pcrread sha256:23
 sha256:
-  23: 0x741340FA5E38B91AD202C67B8C801B65BEC7A36F19EF033CDC4C820A9F79637C
+  23: 0xB0AD349B20FAED608B844321D6271B127DBDD7C706FD3CB2BEEC49709605F687
+
+cat /sys/kernel/security/ima/ascii_runtime_measurements
+   23 140ecfbecee34e5061683da00a56bbd53d7461e2 ima-ng sha1:639298eff80832b052380567e1a7a31261e35509 /bin/date
 ```
 
 
@@ -78,12 +78,14 @@ tpm2_unseal -o unseal.dat -c key.ctx -p"pcr:sha256:23=pcr23_val.bin"
 apt install ima-evm-utils
 
 
-$ vi /etc/default/grub
-  GRUB_CMDLINE_LINUX="ima_policy=tcb" 
+vi /etc/default/grub
+ add
+   GRUB_CMDLINE_LINUX="ima_tcb ima_hash=sha256" 
+sudo update-grub
 
 $ sudo update-grub 
 
-# more /etc/initramfs-tools/scripts/init-top/ima_policy
+# vi /etc/initramfs-tools/scripts/init-top/ima_policy
 #!/bin/sh
 
 PREREQ="" 
@@ -132,6 +134,7 @@ audit func=BPRM_CHECK  uid=1001
 ls /sys/kernel/security/ima
 chmod a+x /etc/initramfs-tools/scripts/init-top/ima_policy
 update-initramfs -u
+reboot
 ```
 
 ---

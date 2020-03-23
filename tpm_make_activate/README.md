@@ -180,7 +180,7 @@ Transfer `credBlob`, `encryptedSecret0` to TPM-A
 3) On TPM-A, 
 Unwrap the encryptedSecret to reveal the  secret TPM-B sent.
 
-You can return the encrypted secret to TPM-A and show that TPM-B 'owns' EK and AK
+You can return the _unencrypted_ secret to TPM-A and show that TPM-B 'owns' EK and AK
 
 ```bash
 # ls

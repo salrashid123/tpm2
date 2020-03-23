@@ -39,6 +39,10 @@ Also shown equivalent use of `go-tpm` library set.
     - Import Google Cloud Service account .p12 file  or any generic privateKey PEM into a TPM as a persistent handle.
     - Convert PEM formatted key to TPM2-tools format.
 
+- `mTLS`:  mTLS using `go-tpm` and nginx
+
+- `ima_policy`:  Sample 'helloworld' configuration of IMA.
+
 ### Usage
 
 Excercising any of the scenarios above requires access to a TPM(!).  You can use `vTPM` included with a Google Cloud [Shielded VM](https://cloud.google.com/shielded-vm/) surfaced at `/dev/tpm0` on the VM
@@ -140,6 +144,7 @@ $ openssl engine -t -c tpm2tss
 Git repo demonstrating running mTLS using go-tpm and nginx webserver:
 
 - [golang TLS with Trusted Platform Module (TPM) based keys](https://github.com/salrashid123/go_tpm_https)
+
 
 ### Appendix
 
