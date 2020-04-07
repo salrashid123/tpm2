@@ -29,6 +29,8 @@ Also shown equivalent use of `go-tpm` library set.
 
 - `tpm_make_activate`: Attestation Protocol using Make-Activate credentials (`tpm2_makecredential`, `tpm2_activatecredential`)
 
+- `tpm2_get_ak_name`: Gets the AK "name" given the PEM format of a public key.
+
 - `tpm2_duplicate`: Use (`tpm2_import`, `tpm2_duplicate`) encrypt and transfer a key from one TPM to another.
 
 - `ek_import_blob`: Transfer secret from one TPM to another using ekPub only. Example only covers `go-tpm` based transfer (TODO: figure out the `tpm2_tools` flow).
