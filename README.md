@@ -40,6 +40,7 @@ Also shown equivalent use of `go-tpm` library set.
 - `utils`:  Utility functions
     - Import Google Cloud Service account .p12 file  or any generic privateKey PEM into a TPM as a persistent handle.
     - Convert PEM formatted key to TPM2-tools format.
+    - Imports Generic PEM private key (no password) as a go-tpm context object you can reload.
 
 - `mTLS`:  mTLS using `go-tpm` and nginx
 
