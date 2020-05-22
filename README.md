@@ -23,6 +23,8 @@ Also shown equivalent use of `go-tpm` library set.
 
 - `sign_with_ak`: Sign with Attestation Key (`tpm2_createak`, `tpm2_hash`, `tpm2_sign`, `tpm2_verifysignature`)
 
+- `sign_certify_ak`:  Generate Child key and Sign data with it.  Create Attestation/[Certify](https://godoc.org/github.com/google/go-tpm/tpm2#Certify) child key with AK.  Verify Signature.
+
 - `sign_wth_rsa`: Generate RSA key with TPM  and sign (`tpm2_create`,`tpm2_load`, `tpm2_sign`, `tpm2_verifysignature`)
 
 - `tpm_import_external_rsa`: Import external RSA key to TPM; decrypt data with TPM (`tpm2_import, tpm2_load, tpm2_rsadecrypt`)
