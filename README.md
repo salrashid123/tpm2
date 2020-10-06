@@ -48,6 +48,8 @@ Also shown equivalent use of `go-tpm` library set.
 
 - `ima_policy`:  Sample 'helloworld' configuration of IMA.
 
+- `pcr_utils`:  Readn and Extend PCR values
+
 ### Usage
 
 Excercising any of the scenarios above requires access to a TPM(!).  You can use `vTPM` included with a Google Cloud [Shielded VM](https://cloud.google.com/shielded-vm/) surfaced at `/dev/tpm0` on the VM
