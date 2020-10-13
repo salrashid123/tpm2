@@ -57,6 +57,9 @@ Generate an RSA keypair on TPM to transfer  (note the passphrase is 'foo')
 ```
 tpm2_create -C primary.ctx -g sha256 -G rsa -p foo -r key.prv \
 -u key.pub  -L dpolicy.dat -a "sensitivedataorigin|userwithauth|decrypt|sign"
+  
+    [ FOR AES key use -G aes:
+       tpm2_create -C primary.ctx -g sha256 -G aes -p foo -r key.prv -u key.pub  -L dpolicy.dat -a "sensitivedataorigin|userwithauth|decrypt|sign" ]
 
 tpm2_load -C primary.ctx -r key.prv -u key.pub -c key.ctx
 
@@ -69,6 +72,9 @@ Test sign and encryption locally (so we can compare later that the same key was 
 echo "meet me at.." >file.txt
 tpm2_rsaencrypt -c key.ctx  -o data.encrypted file.txt
 tpm2_sign -c key.ctx -g sha256 -f plain -p foo -o sign.raw file.txt
+
+   [ for AES key, use
+     tpm2_encryptdecrypt -Q -c key.ctx -p foo -o encrypt.out secret.dat ]
 ```
 
 Compare the signature hash (we will use this later to confirm the key was transferred to TPM-B):

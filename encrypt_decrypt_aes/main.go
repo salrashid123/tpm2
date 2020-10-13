@@ -35,9 +35,10 @@ var (
 	}
 
 	symKeyParams = tpm2.Public{
-		Type:       tpm2.AlgSymCipher,
-		NameAlg:    tpm2.AlgSHA256,
-		Attributes: tpm2.FlagDecrypt | tpm2.FlagSign | tpm2.FlagUserWithAuth | tpm2.FlagFixedParent | tpm2.FlagFixedTPM | tpm2.FlagSensitiveDataOrigin,
+		Type:    tpm2.AlgSymCipher,
+		NameAlg: tpm2.AlgSHA256,
+		Attributes: tpm2.FlagDecrypt | tpm2.FlagSign | tpm2.FlagUserWithAuth |
+			tpm2.FlagFixedParent | tpm2.FlagFixedTPM | tpm2.FlagSensitiveDataOrigin,
 		SymCipherParameters: &tpm2.SymCipherParams{
 			Symmetric: &tpm2.SymScheme{
 				Alg:     tpm2.AlgAES,
