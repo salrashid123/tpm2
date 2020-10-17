@@ -35,9 +35,11 @@ Also shown equivalent use of `go-tpm` library set.
 
 - `tpm2_duplicate`: Use (`tpm2_import`, `tpm2_duplicate`) encrypt and transfer a key from one TPM to another.
 
-- `ek_import_blob`: Transfer secret from one TPM to another using ekPub only. Example only covers `go-tpm` based transfer (TODO: figure out the `tpm2_tools` flow).
+- `ek_import_blob`: Transfer secret  using ekPub only. Example only covers `go-tpm` based transfer (TODO: figure out the `tpm2_tools` flow).
+      * see  to [https://github.com/salrashid123/gcp_tpm_sealed_keys](https://github.com/salrashid123/gcp_tpm_sealed_keys) 
 
 - `ek_import_rsa_blob`: Transfer RSA key from your local system to a GCP vTPM using its ekPub only. Example only covers `go-tpm` based transfer.  For example, use this mechanism to transfer a Service Account Private key securely such that the key on the vTPM cannot be exported but yet available to sign and authenticate.
+      * see  to [https://github.com/salrashid123/gcp_tpm_sealed_keys](https://github.com/salrashid123/gcp_tpm_sealed_keys)
 
 - `utils`:  Utility functions
     - Import Google Cloud Service account .p12 file  or any generic privateKey PEM into a TPM as a persistent handle.

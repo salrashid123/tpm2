@@ -25,13 +25,6 @@ tpm2_verifysignature -c ak.ctx -g sha256 -s sig.rssa -m message.txt
 
 ```
 # go run main.go 
-# command-line-arguments
-./main.go:375:11: no new variables on left side of :=
-./main.go:380:9: no new variables on left side of :=
-./main.go:384:9: no new variables on left side of :=
-note: module requires Go 1.14
-root@tpm-server-2:~/ak_sign# cp /home/srashid/main.go .
-root@tpm-server-2:~/ak_sign# go run main.go 
 2020/07/02 00:58:39 ======= Init  ========
 2020/07/02 00:58:39 0 handles flushed
 2020/07/02 00:58:39 PCR 23 Value 0000000000000000000000000000000000000000000000000000000000000000 

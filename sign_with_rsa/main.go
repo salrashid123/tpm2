@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 
-	"crypto/sha256"
 	"encoding/base64"
 
 	"github.com/golang/glog"
@@ -66,8 +65,13 @@ func main() {
 
 	dataToSeal := []byte("secret")
 
-	digest := sha256.Sum256(dataToSeal)
-	sig, err := tpm2.Sign(rwc, handle, "", digest[:], &tpm2.SigScheme{
+	digest, khValidation, err := tpm2.Hash(rwc, tpm2.AlgSHA256, dataToSeal, tpm2.HandleOwner)
+	if err != nil {
+		glog.Errorf("Hash failed unexpectedly: %v", err)
+		return
+	}
+
+	sig, err := tpm2.Sign(rwc, handle, "", digest[:], khValidation, &tpm2.SigScheme{
 		Alg:  tpm2.AlgRSASSA,
 		Hash: tpm2.AlgSHA256,
 	})

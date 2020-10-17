@@ -13,6 +13,8 @@ import (
 	"github.com/google/go-tpm/tpmutil"
 )
 
+type SealCurrent struct{ tpm2.PCRSelection }
+
 var handleNames = map[string][]tpm2.HandleType{
 	"all":       []tpm2.HandleType{tpm2.HandleTypeLoadedSession, tpm2.HandleTypeSavedSession, tpm2.HandleTypeTransient},
 	"loaded":    []tpm2.HandleType{tpm2.HandleTypeLoadedSession},
@@ -83,7 +85,10 @@ func run(pcr int, tpmPath string, secret string) (retErr error) {
 	pcrToExtend := tpmutil.Handle(pcr)
 	log.Printf("PCR %v handle: %v", pcrList, pcrToExtend)
 
-	sealed, err := srk.Seal(pcrList, []byte(secret))
+	sel := tpm2.PCRSelection{Hash: tpm2.AlgSHA256, PCRs: []int{pcr}}
+	sOpt := tpm2tools.SealCurrent{PCRSelection: sel}
+
+	sealed, err := srk.Seal([]byte(secret), sOpt)
 	if err != nil {
 		log.Fatalf("failed to seal: %v", err)
 	}

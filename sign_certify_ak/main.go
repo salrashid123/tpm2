@@ -305,12 +305,12 @@ func main() {
 
 	// Now Sign some arbitrary data with the unrestricted Key
 	dataToSign := []byte("secret")
-	digest, err := tpm2.Hash(rwc, tpm2.AlgSHA256, dataToSign)
+	digest, khValidation, err := tpm2.Hash(rwc, tpm2.AlgSHA256, dataToSign, tpm2.HandleOwner)
 	if err != nil {
 		log.Fatalf("Error Generating Hash: %v", err)
 	}
 
-	sig, err := tpm2.Sign(rwc, ukeyHandle, "", digest[:], &tpm2.SigScheme{
+	sig, err := tpm2.Sign(rwc, ukeyHandle, "", digest[:], khValidation, &tpm2.SigScheme{
 		Alg:  tpm2.AlgRSASSA,
 		Hash: tpm2.AlgSHA256,
 	})

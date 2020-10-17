@@ -18,7 +18,7 @@ package main
 	tpm2_evictcontrol -C o -c key.ctx 0x81010002
 
 
-	go run main.go --pemFile private.pem --primaryFileName=primary.bin --keyFileName=key.bin --logtostderr=1 -v 10
+	go run importExternalRSA.go --pemFile private.pem --primaryFileName=primary.bin --keyFileName=key.bin
 */
 
 import (
@@ -26,7 +26,6 @@ import (
 	//"fmt"
 	"crypto"
 	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
@@ -287,8 +286,14 @@ func main() {
 	// log.Printf("     key persisted")
 
 	dataToSign := []byte("secret")
-	digest := sha256.Sum256(dataToSign)
-	sig, err := tpm2.Sign(rwc, pH, emptyPassword, digest[:], &tpm2.SigScheme{
+
+	khDigest, khValidation, err := tpm2.Hash(rwc, tpm2.AlgSHA256, dataToSign, tpm2.HandleOwner)
+	if err != nil {
+		log.Fatalf("Hash failed unexpectedly: %v", err)
+		return
+	}
+
+	sig, err := tpm2.Sign(rwc, pH, emptyPassword, khDigest[:], khValidation, &tpm2.SigScheme{
 		Alg:  tpm2.AlgRSASSA,
 		Hash: tpm2.AlgSHA256,
 	})
@@ -298,7 +303,7 @@ func main() {
 
 	log.Printf("Signature data:  %s", base64.RawStdEncoding.EncodeToString([]byte(sig.RSA.Signature)))
 
-	if err := rsa.VerifyPKCS1v15(pv.Public().(*rsa.PublicKey), crypto.SHA256, digest[:], []byte(sig.RSA.Signature)); err != nil {
+	if err := rsa.VerifyPKCS1v15(pv.Public().(*rsa.PublicKey), crypto.SHA256, khDigest[:], []byte(sig.RSA.Signature)); err != nil {
 		log.Fatalf("Signature verification failed: %v", err)
 	}
 
