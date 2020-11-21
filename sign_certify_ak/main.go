@@ -2,11 +2,13 @@ package main
 
 import (
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"flag"
 	"log"
 
 	//"crypto/sha256"
+
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
@@ -55,10 +57,12 @@ var (
 		},
 	}
 
+	// https://github.com/google/go-tpm/blob/master/tpm2/constants.go#L152
 	defaultKeyParams = tpm2.Public{
-		Type:       tpm2.AlgRSA,
-		NameAlg:    tpm2.AlgSHA256,
-		Attributes: tpm2.FlagSignerDefault,
+		Type:    tpm2.AlgRSA,
+		NameAlg: tpm2.AlgSHA256,
+		Attributes: tpm2.FlagSign | tpm2.FlagRestricted | tpm2.FlagFixedTPM |
+			tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin | tpm2.FlagUserWithAuth,
 		AuthPolicy: []byte{},
 		RSAParameters: &tpm2.RSAParams{
 			Sign: &tpm2.SigScheme{
@@ -219,7 +223,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Load AK failed: %s", err)
 	}
-	log.Printf("AK keyName: %v,", hex.EncodeToString(keyName))
+	log.Printf("AK keyName: %v,", base64.StdEncoding.EncodeToString(keyName))
 
 	tpm2.FlushContext(rwc, sessLoadHandle)
 	tpm2.FlushContext(rwc, sessCreateHandle)
@@ -254,7 +258,8 @@ func main() {
 
 	// what i'd really want is a child key of aKkeyHandle but there's some policy i'm isssing
 	// error code 0x1d : a policy check failed exit status 1
-	// ukPriv, ukPub, _, _, _, err := tpm2.CreateKeyUsingAuth(rwc, aKkeyHandle, pcrSelection23, authCommandCreateAuth, emptyPassword, unrestrictedKeyParams)
+	//ukPriv, ukPub, _, _, _, err := tpm2.CreateKeyUsingAuth(rwc, ekh, pcrSelection23, authCommandCreateAuth, emptyPassword, unrestrictedKeyParams)
+	//ukPriv, ukPub, _, _, _, err := tpm2.CreateKey(rwc, aKkeyHandle, pcrSelection23, emptyPassword, emptyPassword, unrestrictedKeyParams)
 
 	ukPriv, ukPub, _, _, _, err := tpm2.CreateKeyUsingAuth(rwc, ekh, pcrSelection23, authCommandCreateAuth, emptyPassword, unrestrictedKeyParams)
 
@@ -292,7 +297,35 @@ func main() {
 		log.Fatalf("Load failed: %s", err)
 	}
 	defer tpm2.FlushContext(rwc, ukeyHandle)
-	log.Printf("ukeyName: %v,", hex.EncodeToString(ukeyName))
+	log.Printf("ukeyName: %v,", base64.StdEncoding.EncodeToString(ukeyName))
+
+	utPub, err := tpm2.DecodePublic(ukPub)
+	if err != nil {
+		log.Fatalf("Error DecodePublic AK %v", utPub)
+	}
+
+	uap, err := utPub.Key()
+	if err != nil {
+		log.Fatalf("akPub.Key() failed: %s", err)
+	}
+	uBytes, err := x509.MarshalPKIXPublicKey(uap)
+	if err != nil {
+		log.Fatalf("Unable to convert akPub: %v", err)
+	}
+
+	uakPubPEM := pem.EncodeToMemory(
+		&pem.Block{
+			Type:  "PUBLIC KEY",
+			Bytes: uBytes,
+		},
+	)
+
+	log.Printf("uakPub PEM \n%s", string(uakPubPEM))
+
+	hasher := sha256.New()
+	hasher.Write(uakPubPEM)
+	initScriptHash := base64.StdEncoding.EncodeToString(hasher.Sum(nil))
+	log.Printf("uakPubPEM hash %s\n", initScriptHash)
 
 	// Certify the Unrestricted key using the AK
 	attestation, csig, err := tpm2.Certify(rwc, emptyPassword, emptyPassword, ukeyHandle, aKkeyHandle, nil)
@@ -303,14 +336,15 @@ func main() {
 	log.Printf("Certify Signature: %v,", hex.EncodeToString(csig))
 	tpm2.FlushContext(rwc, sessLoadHandle)
 
-	// Now Sign some arbitrary data with the unrestricted Key
+	// // Now Sign some arbitrary data with the unrestricted Key
+
 	dataToSign := []byte("secret")
-	digest, khValidation, err := tpm2.Hash(rwc, tpm2.AlgSHA256, dataToSign, tpm2.HandleOwner)
+	digest, hashValidation, err := tpm2.Hash(rwc, tpm2.AlgSHA256, dataToSign, tpm2.HandleOwner)
 	if err != nil {
-		log.Fatalf("Error Generating Hash: %v", err)
+		log.Fatalf("Hash failed unexpectedly: %v", err)
 	}
 
-	sig, err := tpm2.Sign(rwc, ukeyHandle, "", digest[:], khValidation, &tpm2.SigScheme{
+	sig, err := tpm2.Sign(rwc, ukeyHandle, "", digest[:], hashValidation, &tpm2.SigScheme{
 		Alg:  tpm2.AlgRSASSA,
 		Hash: tpm2.AlgSHA256,
 	})
@@ -325,7 +359,39 @@ func main() {
 	if err != nil {
 		log.Fatalf("DecodeAttestationData(%v) failed: %v", attestation, err)
 	}
-	log.Printf("     Attestation att.AttestedCertifyInfo.QualifiedName: %s", hex.EncodeToString(att.AttestedCertifyInfo.QualifiedName.Digest.Value))
+
+	ablock, _ := pem.Decode(uakPubPEM)
+	if ablock == nil {
+		log.Fatalf("Unable to decode akPubPEM %v", err)
+	}
+
+	rra, err := x509.ParsePKIXPublicKey(ablock.Bytes)
+	if err != nil {
+		log.Fatalf("Unable to create rsa Key from PEM %v", err)
+	}
+	arsaPub := *rra.(*rsa.PublicKey)
+
+	params := tpm2.Public{
+		Type:    tpm2.AlgRSA,
+		NameAlg: tpm2.AlgSHA256,
+		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
+			tpm2.FlagUserWithAuth | tpm2.FlagSign,
+		AuthPolicy: []byte{},
+		RSAParameters: &tpm2.RSAParams{
+			Sign: &tpm2.SigScheme{
+				Alg:  tpm2.AlgRSASSA,
+				Hash: tpm2.AlgSHA256,
+			},
+			KeyBits:    2048,
+			ModulusRaw: arsaPub.N.Bytes(),
+		},
+	}
+	ok, err := att.AttestedCertifyInfo.Name.MatchesPublic(params)
+	if err != nil {
+		log.Fatalf("MatchesPublic(%v) failed: %v", attestation, err)
+	}
+	log.Printf("     Attestation : MatchesPublic %v", ok)
+	log.Printf("     Attestation att.AttestedCertifyInfo.Name: %s", base64.StdEncoding.EncodeToString(att.AttestedCertifyInfo.Name.Digest.Value))
 
 	sigL := tpm2.SignatureRSA{
 		HashAlg:   tpm2.AlgSHA256,
