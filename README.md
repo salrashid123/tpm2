@@ -50,7 +50,9 @@ Also shown equivalent use of `go-tpm` library set.
 
 - `ima_policy`:  Sample 'helloworld' configuration of IMA.
 
-- `pcr_utils`:  Readn and Extend PCR values
+- `pcr_utils`:  Read and Extend PCR values
+
+- `PKCS11`:  Access TPM using PKCS-11 and openssl
 
 ### Usage
 
@@ -72,6 +74,20 @@ Excercising any of the scenarios above requires access to a TPM(!).  You can use
 
   - [tpm2-tss/INSTALL](https://github.com/tpm2-software/tpm2-tss/blob/master/INSTALL.md)
   - [tpm2-tools/INSTALL](https://github.com/tpm2-software/tpm2-tools/blob/master/INSTALL.md)
+
+either from debian-testing
+
+```
+$ vi /etc/apt/sources.list
+  deb http://http.us.debian.org/debian/ testing non-free contrib main
+
+
+$ export DEBIAN_FRONTEND=noninteractive 
+$ apt-get update && apt-get install libtpm2-pkcs11-1 tpm2-tools libengine-pkcs11-openssl opensc -y
+
+```
+
+or from source:
 
 ```bash
 apt-get update
