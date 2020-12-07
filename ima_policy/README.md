@@ -9,7 +9,7 @@ IMA Policy Daemon will monitor a variety of system states (eg file changes, etc)
 - [https://www.kernel.org/doc/Documentation/ABI/testing/ima_policy](https://www.kernel.org/doc/Documentation/ABI/testing/ima_policy)
 - [https://wiki.strongswan.org/projects/strongswan/wiki/IMA#Configure-the-IMA-Policy](https://wiki.strongswan.org/projects/strongswan/wiki/IMA#Configure-the-IMA-Policy)
 
-### Sample (useless) PCR Update
+### Sample PCR Update  (useless)
 
 The following shows an impractical use of an IMA configuration:  even if a user types `date` a PCR register is updated...
 
@@ -45,17 +45,17 @@ cat /sys/kernel/security/ima/ascii_runtime_measurements
    23 140ecfbecee34e5061683da00a56bbd53d7461e2 ima-ng sha1:639298eff80832b052380567e1a7a31261e35509 /bin/date
 ```
 
-### Sample (better) PCR Update
+### Sample PCR Update (better)
 
-The following IMA will measure any file on a mounted disk:
+The following IMA will measure any file updated on a mounted disk:
 
 1. Mount Disk
+
 ```
 gcloud compute instances attach-disk tpm-a --disk wasm-disk-1
 
 mkdir -p /mnt/disks/wasm
 mount -o discard,defaults /dev/sdc /mnt/disks/wasm
-umount /dev/sdc
 ```
 
 2. Find its FSUID

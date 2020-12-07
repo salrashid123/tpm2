@@ -54,6 +54,8 @@ Also shown equivalent use of `go-tpm` library set.
 
 - `PKCS11`:  Access TPM using PKCS-11 and openssl
 
+- `LUKS`:  Use TPM for LUKS encryption
+
 ### Usage
 
 Excercising any of the scenarios above requires access to a TPM(!).  You can use `vTPM` included with a Google Cloud [Shielded VM](https://cloud.google.com/shielded-vm/) surfaced at `/dev/tpm0` on the VM
