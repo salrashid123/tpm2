@@ -35,6 +35,8 @@ Also shown equivalent use of `go-tpm` library set.
 
 - `tpm2_duplicate`: Use (`tpm2_import`, `tpm2_duplicate`) encrypt and transfer a key from one TPM to another.
 
+- `hmac_import`: Import an external hmac key and use it to do hmac-stuff
+
 - `ek_import_blob`: Transfer secret  using ekPub only. Example only covers `go-tpm` based transfer (TODO: figure out the `tpm2_tools` flow).
       * see  to [https://github.com/salrashid123/gcp_tpm_sealed_keys](https://github.com/salrashid123/gcp_tpm_sealed_keys) 
 
