@@ -2,8 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto"
-	"crypto/rand"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -11,15 +9,15 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/golang/glog"
 	"github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpmutil"
 )
 
 const (
-	emptyPassword                 = ""
-	CmdHmacStart  tpmutil.Command = 0x0000015B
+	emptyPassword                   = ""
+	CmdHmacStart    tpmutil.Command = 0x0000015B
+	defaultPassword                 = ""
 )
 
 var (
@@ -44,7 +42,7 @@ var (
 		NameAlg: tpm2.AlgSHA256,
 		Attributes: tpm2.FlagDecrypt | tpm2.FlagRestricted | tpm2.FlagFixedTPM |
 			tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin | tpm2.FlagUserWithAuth,
-		AuthPolicy: []byte{},
+		AuthPolicy: []byte(defaultPassword),
 		RSAParameters: &tpm2.RSAParams{
 			Symmetric: &tpm2.SymScheme{
 				Alg:     tpm2.AlgAES,
@@ -93,6 +91,7 @@ func main() {
 	pcrSelection := tpm2.PCRSelection{Hash: tpm2.AlgSHA256, PCRs: pcrList}
 
 	if *mode == "import" {
+
 		pkh, _, err := tpm2.CreatePrimary(rwc, tpm2.HandleOwner, pcrSelection, emptyPassword, emptyPassword, defaultKeyParams)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating Primary %v\n", err)
@@ -124,82 +123,29 @@ func main() {
 		// 	os.Exit(1)
 		// }
 
-		// https://github.com/google/go-tpm/blob/master/tpm2/test/tpm2_test.go#L1951
-		//  The following isn't the right way to import the hmac key.
-		//  it should be encrypted per
-		// "As this test imports a key without using an inner or outer wrapper, the
-		// sensitive data is NOT encrypted. This setup should not actually be used."
-		// import should actually use
-		//  https://github.com/google/go-tpm/blob/master/tpm2/tpm2.go#L617
-		// Import allows a user to import a key created on a different computer
-		// or in a different TPM. The publicBlob and privateBlob must always be
-		// provided. symSeed should be non-nil iff an "outer wrapper" is used. Both of
-		// encryptionKey and sym should be non-nil iff an "inner wrapper" is used.
-
-		// Create a private area containing the input
-
-		private := tpm2.Private{
-			Type:      tpm2.AlgKeyedHash,
-			AuthValue: nil,
-			SeedValue: make([]byte, 32),
-			Sensitive: []byte(*secret),
-		}
-		io.ReadFull(rand.Reader, private.SeedValue)
-
-		privArea, err := private.Encode()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error  encoding  private  %v\n", err)
-			os.Exit(1)
-		}
-
-		duplicate, err := tpmutil.Pack(tpmutil.U16Bytes(privArea))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error  encoding  dulicate  %v\n", err)
-			os.Exit(1)
-		}
-
-		privHash := crypto.SHA256.New()
-		privHash.Write(private.SeedValue)
-		privHash.Write(private.Sensitive)
 		public := tpm2.Public{
-			Type:    tpm2.AlgKeyedHash,
-			NameAlg: tpm2.AlgSHA256,
-			// the object really should have the following attributes but i coudn't get this to work, the error was "parameter 2, error code 0x2 : inconsistent attributes"
-			//Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin | tpm2.FlagUserWithAuth | tpm2.FlagSign,
-			Attributes: tpm2.FlagSensitiveDataOrigin | tpm2.FlagUserWithAuth | tpm2.FlagSign,
+			Type:       tpm2.AlgKeyedHash,
+			NameAlg:    tpm2.AlgSHA256,
+			AuthPolicy: []byte(defaultPassword),
+			Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagUserWithAuth | tpm2.FlagSign, // | tpm2.FlagSensitiveDataOrigin
 			KeyedHashParameters: &tpm2.KeyedHashParams{
-				Alg:    tpm2.AlgHMAC,
-				Hash:   tpm2.AlgSHA256,
-				Unique: privHash.Sum(nil),
+				Alg:  tpm2.AlgHMAC,
+				Hash: tpm2.AlgSHA256,
 			},
 		}
-		pubArea, err := public.Encode()
+
+		hmacKeyBytes := []byte(*secret)
+		privInternal, pubArea, _, _, _, err := tpm2.CreateKeyWithSensitive(rwc, pkh, pcrSelection, defaultPassword, defaultPassword, public, hmacKeyBytes)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error  encoding  public  %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error  creating Sensitive %v\n", err)
 			os.Exit(1)
 		}
-
-		emptyAuth := tpm2.AuthCommand{Session: tpm2.HandlePasswordSession, Attributes: tpm2.AttrContinueSession}
-		privInternal, err := tpm2.Import(rwc, pkh, emptyAuth, pubArea, duplicate, nil, nil, nil)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error Importing hash key  %v\n", err)
-			os.Exit(1)
-		}
-
-		newHandle, _, err := tpm2.Load(rwc, pkh, emptyPassword, pubArea, privInternal)
+		newHandle, _, err := tpm2.Load(rwc, pkh, defaultPassword, pubArea, privInternal)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error  loading hash key %v\n", err)
 			os.Exit(1)
 		}
 		defer tpm2.FlushContext(rwc, newHandle)
-
-		// pHandle := tpmutil.Handle(0x81010002)
-		// err = tpm2.EvictControl(rwc, emptyPassword, tpm2.HandleOwner, newHandle, pHandle)
-		// if err != nil {
-		// 	fmt.Fprintf(os.Stderr,"Error  persisting hash key  %v\n", err)
-		// 	os.Exit(1)
-		// }
-		// defer tpm2.FlushContext(rwc, pHandle)
 
 		fmt.Printf("======= ContextSave (newHandle) ========\n")
 		ekhBytes, err := tpm2.ContextSave(rwc, newHandle)
@@ -212,6 +158,15 @@ func main() {
 			fmt.Fprintf(os.Stderr, "ContextSave failed for ekh%v\n", err)
 			os.Exit(1)
 		}
+
+		// pHandle := tpmutil.Handle(0x81010002)
+		// err = tpm2.EvictControl(rwc, defaultPassword, tpm2.HandleOwner, newHandle, pHandle)
+		// if err != nil {
+		// 	fmt.Fprintf(os.Stderr, "Error  persisting hash key  %v\n", err)
+		// 	os.Exit(1)
+		// }
+		// defer tpm2.FlushContext(rwc, pHandle)
+
 		err = tpm2.FlushContext(rwc, newHandle)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error  flush hash key  %v\n", err)
@@ -223,7 +178,7 @@ func main() {
 		fmt.Printf("======= ContextLoad (newHandle) ========\n")
 		ekhBytes, err := ioutil.ReadFile(*hmacKeyHandle)
 		if err != nil {
-			glog.Fatalf("ContextLoad failed for ekh: %v", err)
+			fmt.Printf("ContextLoad failed for ekh: %v", err)
 			fmt.Fprintf(os.Stderr, "ContextLoad failed for ekh %v\n", err)
 			os.Exit(1)
 		}
@@ -234,8 +189,8 @@ func main() {
 		}
 
 		maxDigestBuffer := 1024
-		seqAuth := ""
-		seq, err := HmacStart(rwc, seqAuth, newHandle, tpm2.AlgSHA256)
+		//seqAuth := ""
+		seq, err := HmacStart(rwc, defaultPassword, newHandle, tpm2.AlgSHA256)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error  starting hash sequence %v\n", err)
 			os.Exit(1)
@@ -244,14 +199,14 @@ func main() {
 
 		plain := []byte(*data)
 		for len(plain) > maxDigestBuffer {
-			if err = tpm2.SequenceUpdate(rwc, seqAuth, seq, plain[:maxDigestBuffer]); err != nil {
+			if err = tpm2.SequenceUpdate(rwc, defaultPassword, seq, plain[:maxDigestBuffer]); err != nil {
 				fmt.Fprintf(os.Stderr, "Error  updating hash sequence %v\n", err)
 				os.Exit(1)
 			}
 			plain = plain[maxDigestBuffer:]
 		}
 
-		digest, _, err := tpm2.SequenceComplete(rwc, seqAuth, seq, tpm2.HandleNull, plain)
+		digest, _, err := tpm2.SequenceComplete(rwc, defaultPassword, seq, tpm2.HandleNull, plain)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error  completing  hash sequence %v\n", err)
 			os.Exit(1)
