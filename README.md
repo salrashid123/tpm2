@@ -96,14 +96,13 @@ or from source:
 ```bash
 apt-get update
 
-apt -y install   autoconf-archive   libcmocka0   libcmocka-dev   procps   iproute2   build-essential   git   pkg-config   gcc   libtool   automake   libssl-dev   uthash-dev   autoconf   doxygen  libcurl4-openssl-dev dbus-x11 libglib2.0-dev
+apt -y install   autoconf-archive   libcmocka0   libcmocka-dev   procps   iproute2   build-essential   git   pkg-config   gcc   libtool   automake   libssl-dev   uthash-dev   autoconf   doxygen  libcurl4-openssl-dev dbus-x11 libglib2.0-dev libjson-c-dev acl
 ```
 
 ```bash
 cd
 git clone https://github.com/tpm2-software/tpm2-tss.git
   cd tpm2-tss
-  git fetch && git fetch --tags && git checkout 2.3.1
   ./bootstrap
   ./configure --with-udevrulesdir=/etc/udev/rules.d
   make -j$(nproc)
@@ -116,7 +115,6 @@ git clone https://github.com/tpm2-software/tpm2-tss.git
 cd
 git clone https://github.com/tpm2-software/tpm2-tools.git
   cd tpm2-tools
-  git fetch && git fetch --tags && git checkout 4.0-rc2
   ./bootstrap
   ./configure
   make check
@@ -130,22 +128,9 @@ This step is optional an only do this if you intend to use openssl w/ the TPM as
 
 
 ```bash
-sudo useradd --system --user-group tss
-cd
-git clone https://github.com/tpm2-software/tpm2-abrmd.git
-  cd tpm2-abrmd
-  git fetch && git fetch --tags && git checkout 2.2.0
-  ./bootstrap
-  ./configure --enable-unit --with-dbuspolicydir=/etc/dbus-1/system.d
-  dbus-launch make check
-  sudo make install
-```
-
-```bash
 cd
 git clone https://github.com/tpm2-software/tpm2-tss-engine.git
   cd tpm2-tss-engine
-  git fetch && git fetch --tags && git checkout v1.0.1
   ./bootstrap
   ./configure
   make -j$(nproc)
