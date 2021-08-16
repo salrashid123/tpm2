@@ -5,7 +5,13 @@
 1. First create a primary key
 
 ```bash
-$ tpm2_createprimary -C e -c primary.ctx
+# optionally seed the "unique" bit
+# https://github.com/tpm2-software/tpm2-tools/issues/2378
+printf '\x00\x01' > ud.1
+dd if=/dev/random bs=256 count=1 of=ud.2
+cat ud.1 ud.2 > unique.dat
+
+tpm2_createprimary -C o -c primary.ctx -u unique.dat
 ```
 
 We are using the `e`ndorsement hierarchy.
@@ -16,30 +22,31 @@ We are using the `e`ndorsement hierarchy.
 Export the pub, priv portions as `key.pub`, `key.priv`
 
 ```bash
-$ tpm2_create -G rsa -u key.pub -r key.priv -C primary.ctx
+tpm2_create -G rsa -u key.pub -r key.priv -C primary.ctx
 ```
 
 
 3. Load the key context
 
 ```bash
-$ tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
-$ tpm2_evictcontrol -C o -c key.ctx 0x81010002
+tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+tpm2_evictcontrol -C o -c key.ctx 0x81008000
 ```
 
-Key context is `key.ctx` and also as persistent handle `0x81010002`
+Key context is `key.ctx` and also as persistent handle `0x81008000`
 
+see  [https://trustedcomputinggroup.org/wp-content/uploads/RegistryOfReservedTPM2HandlesAndLocalities_v1p1_pub.pdf](https://trustedcomputinggroup.org/wp-content/uploads/RegistryOfReservedTPM2HandlesAndLocalities_v1p1_pub.pdf)
 
 4. Create a secret file
 
 ```bash
-$ echo "meet me at..." > secret.txt
+echo "meet me at..." > secret.txt
 ```
 
 5. Encrypt `secret.txt` with the key context
 
 ```bash
-$ tpm2_rsaencrypt -c key.ctx   -o secret.txt.enc secret.txt
+tpm2_rsaencrypt -c key.ctx   -o secret.txt.enc secret.txt
 ```
 
 At this point `secret.txt.enc` is encrypted.
@@ -96,3 +103,46 @@ $ more rsa_external.txt.ptext
 // I1028 23:25:07.054913    9297 main.go:75] Encrypted Data BYuDlnZ+oU...
 // I1028 23:25:07.060076    9297 main.go:81] Decrypted Data meet me at...
 ```
+
+
+---
+
+# with policy
+
+```bash
+echo "foo" > secret.dat
+openssl rand  -out iv.bin 16
+
+tpm2_startauthsession -S session.dat
+tpm2_pcrread sha256:23 -o pcr23_val.bin
+tpm2_policypcr -S session.dat -l sha256:23  -L policy.dat -f pcr23_val.bin
+tpm2_policypassword -S session.dat -L policy.dat
+tpm2_flushcontext session.dat
+
+tpm2_createprimary -C o -g sha256 -G rsa -c primary.ctx
+tpm2_create -g sha256 -G aes -u key.pub -r key.priv -C primary.ctx  -L policy.dat -p testpswd
+tpm2_load -C primary.ctx -u key.pub -r key.priv -n key.name -c aes.ctx  
+
+
+tpm2_startauthsession --policy-session -S session.dat
+tpm2_pcrread sha256:23 -o pcr23_val.bin
+tpm2_policypcr -S session.dat -l sha256:23 -f pcr23_val.bin
+tpm2_policypassword -S session.dat -L policy.dat 
+tpm2_encryptdecrypt -Q --iv iv.bin  -c aes.ctx -o cipher.out   secret.dat  -p"session:session.dat+testpswd"
+tpm2_flushcontext session.dat
+
+tpm2_startauthsession --policy-session -S session.dat
+tpm2_policypcr -S session.dat -l sha256:23
+tpm2_policypassword -S session.dat -L policy.dat 
+tpm2_encryptdecrypt -Q --iv iv.bin  -c aes.ctx -d -o plain.out cipher.out  -p"session:session.dat+testpswd"
+tpm2_flushcontext session.dat
+```
+
+
+```
+$ tpm2_pcrextend 23:sha256=0x0000000000000000000000000000000000000000000000000000000000000000
+$ tpm2_pcrread sha256:23
+    sha256:
+      23: 0xF5A5FD42D16A20302798EF6ED309979B43003D2320D9F0E8EA9831A92759FB4B
+```
+
