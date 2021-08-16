@@ -164,7 +164,6 @@ openssl dgst -sha256 -sign private.pem -out signature.dat to_sign.bin
 
 ## to test, expire the time constraint
 #sleep 4
-tpm2_policysigned -S session.ctx -c signing_key.ctx -x --raw-data to_sign.bin -x -t 3
 tpm2_policysigned -S session.ctx -g sha256 -s signature.dat -f rsassa -c signing_key.ctx -x -t 3
 tpm2_unseal -p session:session.ctx -c sealing_key.ctx -o unsealed.dat
 tpm2_flushcontext session.ctx
