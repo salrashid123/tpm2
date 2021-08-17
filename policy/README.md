@@ -151,22 +151,24 @@ tpm2_loadexternal -C o -G rsa -u public.pem -c signing_key.ctx
 echo "foo" > secret.dat
 
 tpm2_startauthsession -S session.ctx
-tpm2_policysigned -S session.ctx -c signing_key.ctx -L policy.signed -x -t 3
+tpm2_policysigned -S session.ctx -f rsassa -g sha256 -c signing_key.ctx -L policy.dat
 tpm2_flushcontext session.ctx
-tpm2_createprimary -C o -c prim.ctx -Q
-tpm2_create -u sealing_key.pub -r sealing_key.priv -c sealing_key.ctx -C prim.ctx -i secret.dat -L policy.signed -Q
+tpm2_createprimary -C o -c primary.ctx -Q
+tpm2_create -u sealing_key.pub -r sealing_key.priv -c sealing_key.ctx -C primary.ctx -i secret.dat -L policy.dat -Q
 ## Unseal secret
 tpm2_startauthsession -S session.ctx --policy-session
 ### Generate signature
 tpm2_policysigned -S session.ctx -c signing_key.ctx -x --raw-data to_sign.bin -x -t 3
+### Sign the candidate
 openssl dgst -sha256 -sign private.pem -out signature.dat to_sign.bin
 ###Satisfy the policy
 
-## to test, expire the time constraint
-#sleep 4
+## to test failure, expire the time constraint (tpm:parameter(4):the policy has expired)
+# sleep 4
 tpm2_policysigned -S session.ctx -g sha256 -s signature.dat -f rsassa -c signing_key.ctx -x -t 3
 tpm2_unseal -p session:session.ctx -c sealing_key.ctx -o unsealed.dat
 tpm2_flushcontext session.ctx
+cat unsealed.dat
 ```
 
 
