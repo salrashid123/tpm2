@@ -15,7 +15,7 @@ import (
 
 	"crypto"
 
-	"github.com/google/go-tpm-tools/tpm2tools"
+	"github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm/tpm2"
 )
 
@@ -107,7 +107,7 @@ func main() {
 
 	totalHandles := 0
 	for _, handleType := range handleNames["all"] {
-		handles, err := tpm2tools.Handles(rwc, handleType)
+		handles, err := client.Handles(rwc, handleType)
 		if err != nil {
 			log.Fatalf("getting handles: %v", err)
 		}
@@ -399,6 +399,7 @@ func main() {
 	}
 
 	// Verify signature of Attestation by using the PEM Public key for AK
+	//  note, the following will fail, pending: https://github.com/google/go-tpm/issues/262
 	log.Printf("     Decoding PublicKey for AK ========")
 
 	block, _ := pem.Decode(akPubPEM)

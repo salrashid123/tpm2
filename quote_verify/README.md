@@ -172,67 +172,96 @@ akPriv.bin  akPub.bin  attest.bin  ek.bin  ekPub.bin  go.mod  go.sum  main.go
 
 #### Quote
 
-Transfer `akPub.bin` `ek.bin` to your laptop which wants to make the VM quote
-
-If using Google CLoud, you can extract the public RSA key from `ek.bin` and compare that to
-`$  gcloud compute instances get-shielded-identity sev-instance-1  --format="value(encryptionKey.ekPub)"`
-
-(that will ensure the `ek.bin` is really from the VM in question)
-
-Pick a one time nonce (below its `foo` and request a quote that returns pcr value `23`)
-(TODO: the code below does not support multiple PCR registers in the quote...)
+Golang quote/verify and eventlog verification:
 
 
-On the shieldedVM, run:
+* debain10, sha1, with secureboot: PCR:0 `0f2d3a2a1adaa479aeeca8f5df76aadc41b862ea`
+* ubuntu21, sha256, without secureboot: PCR:0 `24af52a4f429b71a3184a6d64cddad17e54ea030e2aa6576bf3a5a3d8bd3328f`
 
-```bash
-# go run main.go --mode quote --secret=foo  --pcr 23 --logtostderr=1 -v 5
-I0319 11:56:02.214666   29779 main.go:314] ======= init Quote ========
-I0319 11:56:02.229965   29779 main.go:341] ======= Load (ek.bin) ========
-I0319 11:56:02.237925   29779 main.go:351] ======= Read (akPub) ========
-I0319 11:56:02.237963   29779 main.go:356] ======= Read (akPriv) ========
-I0319 11:56:02.237981   29779 main.go:362] ======= LoadUsingAuth ========
-I0319 11:56:02.245049   29779 main.go:390] ak keyName 000bbcb80f17f265cc5e2f234e5fa0d3279769863fa016dec2e5ff4cd836353ac08d
-I0319 11:56:02.245068   29779 main.go:392] ======= Start Quote ========
-I0319 11:56:02.246645   29779 main.go:399] PCR 23 Value f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b 
-I0319 11:56:02.252078   29779 main.go:408] Quote Hex ff54434780180022000b5b1bd215e8585f3b528c297a2f2fbe435d87c38d5f2eef135c4d3277d963ae180003666f6f000000000732e39b000000020000000001201605110016280000000001000b030000800020e2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf9
-I0319 11:56:02.252119   29779 main.go:409] Quote Sig 0c3cdc350c19392a0c7d106456d997cac614637d54f502541afc0045cbbdf503b4d04f1911fd99ca16dcbc6df181532d1fda7797ebfc57fe8c865d87628c37f0749d79a76be2f1d19d2692e5069fea5f55b84347f3c02a5927fea918a6b6cb3115fcead4c07a8c04123ed1332b744dd5989443079fca5c66ccf4073cc37b7ecf4fa9d5201b11a15b0b99b88a998520d2ac9522bba7dbd885ba57fb81e0ba09b2ed826ab0319c6b6ee1eac464f177f43eab2ac651f9cafd4023094e4c75201f87677437c41ded4791e7216b17fd54067b90c2882e8b7de81375ef04bf7f3a79b5de77e18c82fae1280dfb325910143ffca8848a4989f21472d071e342c22f164c
-I0319 11:56:02.252133   29779 main.go:411] ======= Write (attestion) ========
-I0319 11:56:02.252239   29779 main.go:417] ======= Write (sig) ========
+- [https://github.com/google/go-tpm-tools/blob/master/server/eventlog_test.go#L226](https://github.com/google/go-tpm-tools/blob/master/server/eventlog_test.go#L226)
+
 ```
-
-Quote key serialized into `attest.bin`, the RSA Signature is `sig.bin` (as rsa256)
-```bash
-# ls 
-akPriv.bin  akPub.bin  attest.bin  ek.bin  ekPub.bin  go.mod  go.sum  main.go  sig.bin
+gcloud compute instances create tpm-debian \
+  --zone=us-central1-a --machine-type=e2-medium --no-service-account --no-scopes \
+  --image=debian-10-buster-v20210817 --image-project=debian-cloud --boot-disk-device-name=tpm-debian \
+  --shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring
 ```
 
 
-#### Verify
+```
+gcloud compute ssh tpm-debian
 
-Return `attest.bin` and `sig.bin` back to the laptop and verify the signature and that the attestation includes the nonce, pcr value you expect
+apt-get update
+apt-get install gcc libtspi-dev wget -y
 
-```bash
-# go run main.go --mode verify --secret=foo  --pcr 23 --logtostderr=1 -v 5
-I0319 11:56:09.811280   29825 main.go:427] ======= init Quote ========
-I0319 11:56:09.828184   29825 main.go:449] Handle 0x80000000 flushed
-I0319 11:56:09.829854   29825 main.go:458] PCR 23 Value f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b 
-I0319 11:56:09.829875   29825 main.go:460] ======= Read (akPub) ========
-I0319 11:56:09.829908   29825 main.go:466] ======= LoadUsingAuth ========
-I0319 11:56:09.829922   29825 main.go:468] ======= Read and Decode(attestion) ========
-I0319 11:56:09.829965   29825 main.go:478] Attestation ExtraData (nonce) foo 
-I0319 11:56:09.830017   29825 main.go:479] Attestation PCR# [23] 
-I0319 11:56:09.830036   29825 main.go:480] Attestation Hash# e2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf9 
-I0319 11:56:09.830043   29825 main.go:482] ======= Read (sig) ========
-I0319 11:56:09.830076   29825 main.go:494] original PCR Value: f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b        --> %!x(MISSING)
-I0319 11:56:09.830096   29825 main.go:495] sha256 of original PCR Value: --> e2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf9
-I0319 11:56:09.830113   29825 main.go:497] ======= Decoding Public ========
-I0319 11:56:09.830238   29825 main.go:508] Attestation Verified 
+
+wget https://golang.org/dl/go1.17.linux-amd64.tar.gz
+rm -rf /usr/local/go && tar -C /usr/local -xzf go1.17.linux-amd64.tar.gz
 ```
 
-Note the nonce `foo` we set earlier is included inside the attestation which also echos the PCR (its hash, rather). eg
 
-PCR Value for 23 is `f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b`
-sha356has of that is `e2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf9`  (which is what we got in the attestation)
+```log
+$ go run main.go  --secret=foo  --pcr 0 --pcrValue 0f2d3a2a1adaa479aeeca8f5df76aadc41b862ea --logtostderr=1 -v 5 
 
-Finally, (and critically) we used the akPublic key to verify the attestation object is signed by the AK we already setup.
+I0830 21:09:23.409440    7485 main.go:117] ======= Init CreateKeys ========
+I0830 21:09:23.424780    7485 main.go:144] 0 handles flushed
+I0830 21:09:23.426713    7485 main.go:151] PCR 0 Value 0f2d3a2a1adaa479aeeca8f5df76aadc41b862ea 
+I0830 21:09:23.426746    7485 main.go:156] ======= createPrimary ========
+I0830 21:09:23.560841    7485 main.go:188] ekPub Name: 000b24516b90809f3fa0d6881b2b2da2d43710fe10ff3df765fee28288501806fae7
+I0830 21:09:23.560881    7485 main.go:189] ekPub: 
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA84oNOTCWL54gk+7sJnES
+hpOG+xZBQUJjvQAN1bFOJBkok9IHx/QgzxM+7UxNA47M3HIcseOQnech+4q0WnKn
+LNDjfPPLdLHCUDUqi6BBAO4d8r5p+Jl7jCwAueoguKKONeTQ13vJzYfEifBZwNWk
++pBO7SmFuGHYDkWkpd6nIB1kHBniylB1o2KyF437Gbk91bC5LIkHFgO2qnURxKVL
+p/iDcaUkL0+6Kl1kn5hTtoOH7YScNHiTeBmZkh5AOgTVhDxpBsX0NtPxZ/EXBGaE
+DhbEA4gMQDIrwWBZCQxY0obmn0UmvRZwjikigvFgxKizYN59uTcfCuXX2Ff+cj2j
+TQIDAQAB
+-----END PUBLIC KEY-----
+I0830 21:09:23.560920    7485 main.go:191] ======= Write (ekPub) ========
+I0830 21:09:23.561091    7485 main.go:201] ======= CreateKeyUsingAuth ========
+I0830 21:09:23.716203    7485 main.go:227] akPub: 0001000b00050072000000100014000b0800000000000100af65ca0336992a09d9593c7916d5cacbbbff9700ee6b81bbddd063813b38957b94dd08ba0cc65ed28e7c1e98eac9b6fb2cac9bfce089491946308a7cd6ec9ada207180153e7a0898bd41e2772d22523837bf242387643a1791d9e9abff7bf243ae8bcc950bc1e79b78b4593fd239ba3f90ff8c1c16f407c6b68ca2ed2e18456183c9fdd544bc353e7de7c819e27fae010e649ce0588f5575a0f1f04cccc6814224dc04e9d0f12ce66235ea3d842fe6b376ba390d8ceb52c603daa61e742270afd6bd8ec7a99a8258bcaefb98a3a3d5b63a501a2063a620430f44ab77122fbf5d3ae431fb6e8504f4755f7c5c955b7a0ab4939ed307ceea0284f23cefc9bf4a99,
+I0830 21:09:23.716244    7485 main.go:228] akPriv: 002041e31976a4efcb882d83e2cba75530285852df315a47d20f4e60b6c7f1790baa0010a3dad5c92e3cc5475a71ca44bf4becd625dd3f4f2143710c4fc98d18e4b8a1ae390fde6c7e681a0920c59f0a7e47cec465f530d8a1ccb336b9b0f6a1527c2ae84180e133ede28d7d1ec8ef8d7ee31ae26af910f6340a78b04ab5924bb579e959ab530cb2353f2b1bc1d181ad92baf63fcbe317df2749ac741f352613a3855830ee7bc2bb742b5385552b3f667b70dcbd6816d3434516bec11f86cd81214440c450a82ee36b2d534da5873faece539d1561c643ec030e381ded4b,
+I0830 21:09:23.716273    7485 main.go:239] ======= ContextSave (ek) ========
+I0830 21:09:23.727232    7485 main.go:250] ======= ContextLoad (ek) ========
+I0830 21:09:23.735647    7485 main.go:260] ======= LoadUsingAuth ========
+I0830 21:09:23.743938    7485 main.go:288] ak keyName 0022000bac5a397e4541d23762e92dc803c574c0bee8e4f333efc5dfe9fe30cb95f6faf8
+I0830 21:09:23.744016    7485 main.go:290] ======= Write (akPub) ========
+I0830 21:09:23.744238    7485 main.go:295] ======= Write (akPriv) ========
+I0830 21:09:23.749672    7485 main.go:99] keyNameBytes  0022000bac5a397e4541d23762e92dc803c574c0bee8e4f333efc5dfe9fe30cb95f6faf8 
+I0830 21:09:23.749707    7485 main.go:304] ======= init Quote ========
+I0830 21:09:23.755700    7485 main.go:331] ======= Load (ek.bin) ========
+I0830 21:09:23.764684    7485 main.go:341] ======= Read (akPub) ========
+I0830 21:09:23.764792    7485 main.go:346] ======= Read (akPriv) ========
+I0830 21:09:23.764817    7485 main.go:352] ======= LoadUsingAuth ========
+I0830 21:09:23.772574    7485 main.go:380] ak keyName 0022000bac5a397e4541d23762e92dc803c574c0bee8e4f333efc5dfe9fe30cb95f6faf8
+I0830 21:09:23.772607    7485 main.go:382] ======= Start Quote ========
+I0830 21:09:23.774392    7485 main.go:389] PCR 0 Value 0f2d3a2a1adaa479aeeca8f5df76aadc41b862ea 
+I0830 21:09:23.780235    7485 main.go:398] Quote Hex ff54434780180022000b2dc333f890f4268e178912d6491f6b39f489cd0f12b0c9d7b515c92b5c391d6c0003666f6f00000000000a1ca500000008000000000120160511001628000000000100040301000000205338985c6393c540b8c2c9d9c69dde64144470c5076dd53dbc4b84753e0004ac
+I0830 21:09:23.780277    7485 main.go:399] Quote Sig 4f87fe7eca504c45d4a822ac6671739082ea3599b590ac6b30767c9267e93ee91973aed76287b6773629820135c66b83389daa2f4cad391f66d52caee07b12f193067ae4b761d554fcaf293b39a6cd6c0b4309c2870f82b06ff7f45fc1e9099349d22614f5e3a561a6e90268584867f46f400e82e411a9d34f73ef17a7bec6c43b36803724d2f82ed084f4401183259575bea8e2f687055991beb0962019eb3c84b6a7c372ddcaa1f3578933c442fcdf431d50b2be9fd11de12109acd634121a34afe6d5af0ca60b98fcf92ba1f77dd9a6010983c09eadcc41723fef00099148a9f04786a306a73da5990d261dfcd127aacadbba5f2d10bbe4a0c05d35e167b5
+I0830 21:09:23.780302    7485 main.go:401] ======= Getting EventLog ========
+I0830 21:09:23.783316    7485 main.go:411] ======= init verify ========
+I0830 21:09:23.786456    7485 main.go:427] PCR 0 Value 0f2d3a2a1adaa479aeeca8f5df76aadc41b862ea 
+I0830 21:09:23.786484    7485 main.go:429] ======= Read (akPub) ========
+I0830 21:09:23.786537    7485 main.go:435] ======= LoadUsingAuth ========
+I0830 21:09:23.786554    7485 main.go:437] ======= Read and Decode(attestion) ========
+I0830 21:09:23.786591    7485 main.go:443] Attestation ExtraData (nonce) foo 
+I0830 21:09:23.786608    7485 main.go:444] Attestation PCR# [0] 
+I0830 21:09:23.786637    7485 main.go:445] Attestation Hash# 5338985c6393c540b8c2c9d9c69dde64144470c5076dd53dbc4b84753e0004ac 
+I0830 21:09:23.786660    7485 main.go:450] sha256 of original PCR Value: --> 5338985c6393c540b8c2c9d9c69dde64144470c5076dd53dbc4b84753e0004ac
+I0830 21:09:23.786680    7485 main.go:452] ======= Decoding Public ========
+I0830 21:09:23.786824    7485 main.go:463] Attestation Verified 
+I0830 21:09:23.786930    7485 main.go:482] Event Type EV_S_CRTM_VERSION
+I0830 21:09:23.786978    7485 main.go:483] PCR Index 0
+I0830 21:09:23.787000    7485 main.go:484] Event Data 47004300450020005600690072007400750061006c0020004600690072006d0077006100720065002000760031000000
+I0830 21:09:23.787022    7485 main.go:485] Event Digest 3f708bdbaff2006655b540360e16474c100c1310
+I0830 21:09:23.787045    7485 main.go:482] Event Type EV_NONHOST_INFO
+I0830 21:09:23.787060    7485 main.go:483] PCR Index 0
+I0830 21:09:23.787073    7485 main.go:484] Event Data 474345204e6f6e486f7374496e666f0000000000000000000000000000000000
+I0830 21:09:23.787084    7485 main.go:485] Event Digest 9e8af742718df04092551f27c117723769acfe7e
+I0830 21:09:23.787094    7485 main.go:482] Event Type EV_SEPARATOR
+I0830 21:09:23.787104    7485 main.go:483] PCR Index 0
+I0830 21:09:23.787116    7485 main.go:484] Event Data 00000000
+I0830 21:09:23.787126    7485 main.go:485] Event Digest 9069ca78e7450a285173431b3e52c5c25299e473
+I0830 21:09:23.787135    7485 main.go:487] EventLog Verified 
+```

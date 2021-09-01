@@ -8,7 +8,7 @@ Certify a Child Key with an AK.
 3. Generate Child Key (k1) of EK that is unrestricted (`tpm2.FlagRestricted`)
 4. Certify `k1` with AK
 5. Sign data with `k1`
-6. Verify Certification
+6. Verify Certification  (note, [go-tpm/issues/262](https://github.com/google/go-tpm/issues/262))
 
 At step 6, since you confirmed AK signed k1 and if you trust AK, you can trust the signature done by `k1` in step 4
 

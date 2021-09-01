@@ -13,11 +13,18 @@ Also shown equivalent use of `go-tpm` library set.
 - [go-attestation](https://github.com/google/go-attestation)
 
 
+
+Update 8/28/21:  Added a gRPC client/server that does full remote attestation, quote/verify and secret sharing:
+
+- [https://github.com/salrashid123/go_tpm_remote_attestation](https://github.com/salrashid123/go_tpm_remote_attestation)
+
 ## Usecases:
 
 - `encrypt_with_tpm_rsa`: Encrypt with RSA Key generated on TPM (`tpm2_create`, `tpm2_rsaencrypt, tpm2_decrypt`)
 
 - `tpm_quote_verify`: Generate TPM Quote blob with PCR23 value (`tpm2_createak`, `tpm2_quote`, `tpm2_checkquote`)
+
+- `event_log`: Generate and Verify a TPM [event log]()
 
 - `seal_to_tpm`: Seal arbitrary data directly to TPM; use PCR Policy (`tpm2_create`, `tpm2_load`, `tpm2_seal`, `tpm2_unseal`)
 

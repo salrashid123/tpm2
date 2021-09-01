@@ -15,8 +15,9 @@ import (
 	"io/ioutil"
 
 	"github.com/golang/glog"
-
-	"github.com/google/go-tpm-tools/tpm2tools"
+	"github.com/google/go-tpm-tools/client"
+	pb "github.com/google/go-tpm-tools/proto/tpm"
+	"github.com/google/go-tpm-tools/server"
 	"github.com/google/go-tpm/tpm2"
 )
 
@@ -30,13 +31,11 @@ var handleNames = map[string][]tpm2.HandleType{
 }
 
 var (
-	mode   = flag.String("mode", "", "createKey,quote,verify")
-	secret = flag.String("secret", "meet me at...", "secret")
-	// keyName           = flag.String("keyName", "", "KeyName")
+	secret            = flag.String("secret", "meet me at...", "secret")
 	ekPubFilepub      = flag.String("ekPubFile", "ek.bin", "ekPub file")
-	akPubFile         = flag.String("akPubFile", "akPub.bin", "akPub file")
 	tpmPath           = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
-	pcr               = flag.Int("pcr", -1, "PCR to seal data to. Must be within [0, 23].")
+	pcr               = flag.Int("pcr", 0, "PCR to seal data to. Must be within [0, 23].")
+	pcrValue          = flag.String("pcrValue", "0f2d3a2a1adaa479aeeca8f5df76aadc41b862ea", "PCR value. on GCP Shielded VM, debian10 with secureboot: 0f2d3a2a1adaa479aeeca8f5df76aadc41b862ea is for PCR 0")
 	defaultEKTemplate = tpm2.Public{
 		Type:    tpm2.AlgRSA,
 		NameAlg: tpm2.AlgSHA256,
@@ -85,42 +84,33 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *mode != "createKey" && *mode != "quote" && *mode != "verify" {
-		fmt.Fprintf(os.Stderr, "mode must be one of createKey|quote|verify: %v", *mode)
+	var err error
+
+	name, err := createKeys(*pcr, *tpmPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error createKeys: %v\n", err)
+		os.Exit(1)
+	}
+	keyNameBytes, err := hex.DecodeString(name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error decoding key: %v\n", err)
+		os.Exit(1)
+	}
+	glog.V(2).Infof("keyNameBytes  %s ", hex.EncodeToString(keyNameBytes))
+
+	attestation, signature, evtLog, err := quote(*pcr, *tpmPath, *secret)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error quote: %v\n", err)
 		os.Exit(1)
 	}
 
-	var err error
-	switch *mode {
-	case "createKey":
-		name, err := createKeys(*pcr, *tpmPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error createKeys: %v\n", err)
-			os.Exit(1)
-		}
-		keyNameBytes, err := hex.DecodeString(name)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error decoding key: %v\n", err)
-			os.Exit(1)
-		}
-		glog.V(2).Infof("keyNameBytes  %v ", hex.EncodeToString(keyNameBytes))
-	case "quote":
-		err = quote(*pcr, *tpmPath, *secret)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error makeCredential: %v\n", err)
-			os.Exit(1)
-		}
-	case "verify":
-		err = verify(*pcr, *tpmPath, *secret)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error makeCredential: %v\n", err)
-			os.Exit(1)
-		}
+	err = verify(*pcr, *tpmPath, *secret, attestation, signature, evtLog)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error verify: %v\n", err)
+		os.Exit(1)
 	}
 
 }
-
-//   go run shieldedvm/main.go --mode createKey --pcr 23 --secret=foo --logtostderr=1 -v 5
 
 func createKeys(pcr int, tpmPath string) (n string, retErr error) {
 
@@ -138,7 +128,7 @@ func createKeys(pcr int, tpmPath string) (n string, retErr error) {
 
 	totalHandles := 0
 	for _, handleType := range handleNames["all"] {
-		handles, err := tpm2tools.Handles(rwc, handleType)
+		handles, err := client.Handles(rwc, handleType)
 		if err != nil {
 			glog.Fatalf("getting handles: %v", err)
 		}
@@ -154,13 +144,13 @@ func createKeys(pcr int, tpmPath string) (n string, retErr error) {
 	glog.V(2).Infof("%d handles flushed\n", totalHandles)
 
 	pcrList := []int{pcr}
-	pcrval, err := tpm2.ReadPCR(rwc, pcr, tpm2.AlgSHA256)
+	pcrval, err := tpm2.ReadPCR(rwc, pcr, tpm2.AlgSHA1)
 	if err != nil {
 		glog.Fatalf("Unable to  ReadPCR : %v", err)
 	}
 	glog.V(2).Infof("PCR %v Value %v ", pcr, hex.EncodeToString(pcrval))
 
-	pcrSelection23 := tpm2.PCRSelection{Hash: tpm2.AlgSHA256, PCRs: pcrList}
+	pcrSelection23 := tpm2.PCRSelection{Hash: tpm2.AlgSHA1, PCRs: pcrList}
 	emptyPassword := ""
 
 	glog.V(2).Infof("======= createPrimary ========")
@@ -310,7 +300,7 @@ func createKeys(pcr int, tpmPath string) (n string, retErr error) {
 	return kn, nil
 }
 
-func quote(pcr int, tpmPath string, sec string) (retErr error) {
+func quote(pcr int, tpmPath string, sec string) (attestation, signature, evtLog []byte, retErr error) {
 	glog.V(2).Infof("======= init Quote ========")
 
 	rwc, err := tpm2.OpenTPM(tpmPath)
@@ -325,7 +315,7 @@ func quote(pcr int, tpmPath string, sec string) (retErr error) {
 
 	totalHandles := 0
 	for _, handleType := range handleNames["all"] {
-		handles, err := tpm2tools.Handles(rwc, handleType)
+		handles, err := client.Handles(rwc, handleType)
 		if err != nil {
 			glog.Fatalf("getting handles: %v", err)
 		}
@@ -392,13 +382,13 @@ func quote(pcr int, tpmPath string, sec string) (retErr error) {
 	glog.V(2).Infof("======= Start Quote ========")
 
 	pcrList := []int{pcr}
-	pcrval, err := tpm2.ReadPCR(rwc, pcr, tpm2.AlgSHA256)
+	pcrval, err := tpm2.ReadPCR(rwc, pcr, tpm2.AlgSHA1)
 	if err != nil {
 		glog.Fatalf("Unable to  ReadPCR : %v", err)
 	}
 	glog.V(2).Infof("PCR %v Value %v ", pcr, hex.EncodeToString(pcrval))
 
-	pcrSelection23 := tpm2.PCRSelection{Hash: tpm2.AlgSHA256, PCRs: pcrList}
+	pcrSelection23 := tpm2.PCRSelection{Hash: tpm2.AlgSHA1, PCRs: pcrList}
 	emptyPassword := ""
 
 	attestation, sig, err := tpm2.Quote(rwc, keyHandle, emptyPassword, emptyPassword, []byte(*secret), pcrSelection23, tpm2.AlgNull)
@@ -408,23 +398,17 @@ func quote(pcr int, tpmPath string, sec string) (retErr error) {
 	glog.V(2).Infof("Quote Hex %v", hex.EncodeToString(attestation))
 	glog.V(2).Infof("Quote Sig %v", hex.EncodeToString(sig.RSA.Signature))
 
-	glog.V(2).Infof("======= Write (attestion) ========")
-	err = ioutil.WriteFile("attest.bin", attestation, 0644)
+	glog.V(2).Infof("======= Getting EventLog ========")
+	evtLog, err = client.GetEventLog(rwc)
 	if err != nil {
-		glog.Fatalf("Save failed for attest: %v", err)
+		glog.Fatalf("failed to get event log: %v", err)
 	}
 
-	glog.V(2).Infof("======= Write (sig) ========")
-	err = ioutil.WriteFile("sig.bin", sig.RSA.Signature, 0644)
-	if err != nil {
-		glog.Fatalf("Save failed for sig: %v", err)
-	}
-
-	return
+	return attestation, sig.RSA.Signature, evtLog, nil
 }
 
-func verify(pcr int, tpmPath string, sec string) (retErr error) {
-	glog.V(2).Infof("======= init Quote ========")
+func verify(pcr int, tpmPath string, sec string, attestation []byte, sigBytes []byte, evtLog []byte) (retErr error) {
+	glog.V(2).Infof("======= init verify ========")
 
 	rwc, err := tpm2.OpenTPM(tpmPath)
 	if err != nil {
@@ -436,22 +420,7 @@ func verify(pcr int, tpmPath string, sec string) (retErr error) {
 		}
 	}()
 
-	totalHandles := 0
-	for _, handleType := range handleNames["all"] {
-		handles, err := tpm2tools.Handles(rwc, handleType)
-		if err != nil {
-			glog.Fatalf("getting handles: %v", err)
-		}
-		for _, handle := range handles {
-			if err = tpm2.FlushContext(rwc, handle); err != nil {
-				glog.Fatalf("flushing handle 0x%x: %v", handle, err)
-			}
-			glog.V(2).Infof("Handle 0x%x flushed\n", handle)
-			totalHandles++
-		}
-	}
-
-	pcrval, err := tpm2.ReadPCR(rwc, pcr, tpm2.AlgSHA256)
+	pcrval, err := tpm2.ReadPCR(rwc, pcr, tpm2.AlgSHA1)
 	if err != nil {
 		glog.Fatalf("Unable to  ReadPCR : %v", err)
 	}
@@ -466,10 +435,6 @@ func verify(pcr int, tpmPath string, sec string) (retErr error) {
 	glog.V(2).Infof("======= LoadUsingAuth ========")
 
 	glog.V(2).Infof("======= Read and Decode(attestion) ========")
-	attestation, err := ioutil.ReadFile("attest.bin")
-	if err != nil {
-		glog.Fatalf("Read failed for attest: %v", err)
-	}
 	att, err := tpm2.DecodeAttestationData(attestation)
 	if err != nil {
 		glog.Fatalf("DecodeAttestationData(%v) failed: %v", attestation, err)
@@ -479,20 +444,10 @@ func verify(pcr int, tpmPath string, sec string) (retErr error) {
 	glog.V(2).Infof("Attestation PCR# %v ", att.AttestedQuoteInfo.PCRSelection.PCRs)
 	glog.V(2).Infof("Attestation Hash# %v ", hex.EncodeToString(att.AttestedQuoteInfo.PCRDigest))
 
-	glog.V(2).Infof("======= Read (sig) ========")
-	sigBytes, err := ioutil.ReadFile("sig.bin")
-	if err != nil {
-		glog.Fatalf("Read failed for sig: %v", err)
-	}
-	sigL := tpm2.SignatureRSA{
-		HashAlg:   tpm2.AlgSHA256,
-		Signature: sigBytes,
-	}
-
 	h := sha256.New()
 	h.Write(pcrval)
-	glog.V(2).Infof("original PCR Value:           --> %x", hex.EncodeToString(pcrval))
-	glog.V(2).Infof("sha256 of original PCR Value: --> %x", h.Sum(nil))
+	pcrHash := h.Sum(nil)
+	glog.V(2).Infof("sha256 of original PCR Value: --> %x", pcrHash)
 
 	glog.V(2).Infof("======= Decoding Public ========")
 	p, err := tpm2.DecodePublic(akPub)
@@ -502,10 +457,33 @@ func verify(pcr int, tpmPath string, sec string) (retErr error) {
 	rsaPub := rsa.PublicKey{E: int(p.RSAParameters.Exponent()), N: p.RSAParameters.Modulus()}
 	hsh := crypto.SHA256.New()
 	hsh.Write(attestation)
-	if err := rsa.VerifyPKCS1v15(&rsaPub, crypto.SHA256, hsh.Sum(nil), sigL.Signature); err != nil {
+	if err := rsa.VerifyPKCS1v15(&rsaPub, crypto.SHA256, hsh.Sum(nil), sigBytes); err != nil {
 		glog.Fatalf("VerifyPKCS1v15 failed: %v", err)
 	}
 	glog.V(2).Infof("Attestation Verified ")
 
+	//bt, err := hex.DecodeString("24af52a4f429b71a3184a6d64cddad17e54ea030e2aa6576bf3a5a3d8bd3328f")  // GCE ubuntu21, sha256 no sb
+	//bt, err := hex.DecodeString("0f2d3a2a1adaa479aeeca8f5df76aadc41b862ea") // GCE debian10, sha1 sb, https://github.com/google/go-tpm-tools/blob/master/server/eventlog_test.go#L226
+	bt, err := hex.DecodeString(*pcrValue)
+	if err != nil {
+		glog.Fatalf("Error decoding pcr %v", err)
+	}
+	pcrMap := map[uint32][]byte{uint32(pcr): bt}
+
+	pcrs := &pb.PCRs{Hash: pb.HashAlgo_SHA1, Pcrs: pcrMap}
+
+	//events, err := server.ParseAndVerifyEventLog(evtLog, pcrs)
+	events, err := server.ParseAndVerifyEventLog(evtLog, pcrs)
+	if err != nil {
+		glog.Fatalf("failed to read PCRs: %v", err)
+	}
+
+	for _, event := range events {
+		glog.V(2).Infof("Event Type %v\n", event.Type)
+		glog.V(2).Infof("PCR Index %d\n", event.Index)
+		glog.V(2).Infof("Event Data %s\n", hex.EncodeToString(event.Data))
+		glog.V(2).Infof("Event Digest %s\n", hex.EncodeToString(event.Digest))
+	}
+	glog.V(2).Infof("EventLog Verified ")
 	return
 }
