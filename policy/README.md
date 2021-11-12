@@ -172,7 +172,40 @@ cat unsealed.dat
 ```
 
 
+policy signed for AES:
 
+```bash
+echo "foo" > secret.dat
+openssl rand  -out iv.bin 16
+openssl genrsa -out private.pem 2048
+openssl rsa -in private.pem -outform PEM -pubout -out public.pem
+tpm2_loadexternal -C o -G rsa -u public.pem -c signing_key.ctx
+
+
+tpm2_startauthsession -S session.ctx
+tpm2_policysigned -S session.ctx -f rsassa -g sha256 -c signing_key.ctx -L policy.dat
+tpm2_flushcontext session.ctx
+tpm2_createprimary -C o -g sha256 -G rsa -c primary.ctx -Q
+tpm2_create -g sha256 -G aes -u key.pub -r key.priv -C primary.ctx -L policy.dat
+tpm2_load -C primary.ctx -u key.pub -r key.priv -n key.name -c aes.ctx
+
+tpm2_startauthsession -S session.ctx --policy-session
+tpm2_policysigned -S session.ctx -c signing_key.ctx -x --raw-data to_sign.bin -x -t 3
+openssl dgst -sha256 -sign private.pem -out signature.dat to_sign.bin
+tpm2_policysigned -S session.ctx -g sha256 -s signature.dat -f rsassa -c signing_key.ctx -x -t 3
+
+tpm2_encryptdecrypt -Q --iv iv.bin  -c aes.ctx -o cipher.out -p"session:session.ctx"  secret.dat
+tpm2_flushcontext session.ctx
+
+
+tpm2_startauthsession -S session.ctx --policy-session
+tpm2_policysigned -S session.ctx -c signing_key.ctx -x --raw-data to_sign.bin -x -t 3
+openssl dgst -sha256 -sign private.pem -out signature.dat to_sign.bin
+tpm2_policysigned -S session.ctx -g sha256 -s signature.dat -f rsassa -c signing_key.ctx -x -t 3
+tpm2_encryptdecrypt  --iv iv.bin  -c aes.ctx -d -o plain.out cipher.out  -p "session:session.ctx"
+tpm2_flushcontext session.ctx
+cat plain.out
+```
 
 
 
