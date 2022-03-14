@@ -179,7 +179,7 @@ DEK: Symmetric
     openssl rsa -in KEK.pem -outform PEM -pubout -out KEK_PUBLIC.pem
     echo "thepassword" > secrets.txt
 
-    openssl rand 128 > DEK.key
+    openssl rand 32 > DEK.key
     openssl enc -aes-256-cbc -salt -pbkdf2 -in secrets.txt -out secrets.txt.enc -pass file:./DEK.key
 
     openssl rsautl -encrypt -inkey KEK_PUBLIC.pem -pubin -in DEK.key -out DEK.key.enc
@@ -190,8 +190,8 @@ DEK: Symmetric
 
 KEK: Symmetric
 DEK: Symmetric
-    openssl rand 128 > kek.key
-    openssl rand 128 > dek.key
+    openssl rand 32 > kek.key
+    openssl rand 32 > dek.key
 
     openssl enc -pbkdf2 -in secrets.txt -out secrets.txt.enc -aes-256-cbc -pass file:./dek.key
     openssl enc -pbkdf2 -in dek.key -out dek.key.enc -aes-256-cbc --pass file:./kek.key
