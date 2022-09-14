@@ -65,6 +65,8 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 
 - `LUKS`:  Use TPM for LUKS encryption
 
+- `attest_verify`: remote attestation using go-tpm-tools
+
 ### Usage
 
 Excercising any of the scenarios above requires access to a TPM(!).  You can use `vTPM` included with a Google Cloud [Shielded VM](https://cloud.google.com/shielded-vm/) surfaced at `/dev/tpm0` on the VM
