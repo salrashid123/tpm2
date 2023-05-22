@@ -22,6 +22,8 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 
 - `encrypt_with_tpm_rsa`: Encrypt with RSA Key generated on TPM (`tpm2_create`, `tpm2_rsaencrypt, tpm2_decrypt`)
 
+- `ek_cert_seal`: Seal data using a _real_ tpm's ekcert signed by Optiga
+
 - `tpm_quote_verify`: Generate TPM Quote blob with PCR23 value (`tpm2_createak`, `tpm2_quote`, `tpm2_checkquote`)
 
 - `event_log`: Generate and Verify a TPM [event log]()
