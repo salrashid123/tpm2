@@ -44,12 +44,28 @@ tpm2_flushcontext session.ctx
 
 3) Read EKCert RSA from NV
 
+from pg 13 of [TCG EK Credential Profile](https://trustedcomputinggroup.org/wp-content/uploads/TCG_IWG_EKCredentialProfile_v2p4_r3.pdf)
+
+```
+2.2.1.4 Low Range
+The Low Range is at NV Indices 0x01c00002 - 0x01c0000c.
+0x01c00002 RSA 2048 EK Certificate
+0x01c00003 RSA 2048 EK Nonce
+0x01c00004 RSA 2048 EK Template
+0x01c0000a ECC NIST P256 EK Certificate
+0x01c0000b ECC NIST P256 EK Nonce
+0x01c0000c ECC NIST P256 EK Template
+```
+
+Note, omit the `0` prefix
+
 ```bash
 export TPM2_EK_NV_INDEX=0x1c00002
 tpm2_nvreadpublic | sed -n -e "/""$TPM2_EK_NV_INDEX""/,\$p" | sed -e '/^[ \r\n\t]*$/,$d' | grep "size" | sed 's/.*size.*://' | sed -e 's/^[[:space:]]*//' | sed -e 's/[[:space:]]$//'
+# the ouput data size will be diferent
 
 
-tpm2_nvread -s 1335  -C o $TPM2_EK_NV_INDEX |  openssl x509 --inform DER -text -noout  -in -
+tpm2_nvread -s 1422  -C o $TPM2_EK_NV_INDEX |  openssl x509 --inform DER -text -noout  -in -
 ```
 
 
