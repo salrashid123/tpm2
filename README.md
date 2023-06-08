@@ -22,6 +22,7 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 
 - `encrypt_with_tpm_rsa`: Encrypt with RSA Key generated on TPM (`tpm2_create`, `tpm2_rsaencrypt, tpm2_decrypt`)
 
+
 - `ek_cert_seal`: Seal data using a _real_ tpm's ekcert signed by Optiga
 
 - `tpm_quote_verify`: Generate TPM Quote blob with PCR23 value (`tpm2_createak`, `tpm2_quote`, `tpm2_checkquote`)
@@ -45,6 +46,8 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 - `tpm2_duplicate`: Use (`tpm2_import`, `tpm2_duplicate`) encrypt and transfer a key from one TPM to another.
 
 - `hmac_import`: Import an external hmac key and use it to do hmac-stuff
+
+- `tpm_services`: samples in go for  standalone remote attestation, quote-verify and seal-unseal
 
 - `ek_import_blob`: Transfer secret  using ekPub only. Example only covers `go-tpm` based transfer (TODO: figure out the `tpm2_tools` flow).
       * see  to [https://github.com/salrashid123/gcp_tpm_sealed_keys](https://github.com/salrashid123/gcp_tpm_sealed_keys) 
