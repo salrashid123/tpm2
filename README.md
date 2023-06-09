@@ -212,6 +212,7 @@ DEK: Symmetric
 
 #### References/Links
 
+- [The Trusted Platform Module Key Hierarchy](https://ericchiang.github.io/post/tpm-keys/)
 - [googe cloud credentials TPMTokenSource](https://github.com/salrashid123/oauth2#tpmtokensource)
 - [TPM2-TSS-Engine hello world and Google Cloud Authentication](https://github.com/salrashid123/tpm2_evp_sign_decrypt)
 
