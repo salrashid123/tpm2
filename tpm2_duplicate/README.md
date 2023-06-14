@@ -21,7 +21,6 @@ a sealed transfer.  This tutorial uses the following two APIs
 * [tpm2_duplicate](https://github.com/tpm2-software/tpm2-tools/blob/master/man/tpm2_duplicate.1.md)
 * [tpm2_import](https://github.com/tpm2-software/tpm2-tools/blob/master/man/tpm2_import.1.md)
 
-Assume both A and B here shares the same filesystem (NFS at /`mnt/nfs/filestore/test`  ...thats just for convenience)
 
 ## On TPM-B
 
@@ -39,17 +38,12 @@ Copy `new_parent.pub` to `TPM-A`.  The copy steps assumes attestation was done
 previously and that `TPM-A` trusts the `new_parent.pub` issued by `TPM-B`
 
 ```bash
-# again, we're assuming that mount point is shared...
-cp new_parent.pub  /mnt/nfs/filestore/test/
+# copy new_parent.pub from B to A
+scp new_parent.pub  alice@tpm-A:
 ```
 
 ## On TPM-A
 
-First copy the `new_parent.pub` generated on B
-
-```bash
-cp /mnt/nfs/filestore/test/new_parent.pub .
-```
 
 Create root object and auth policy allows duplication only
 
@@ -123,9 +117,9 @@ Copy the following files to TPM-B:
 * (optionally data.encrypted just to test decryption)
 
 ```bash
-cp dup.pub /mnt/nfs/filestore/test/
-cp dup.dup /mnt/nfs/filestore/test/
-cp dup.seed /mnt/nfs/filestore/test/
+scp dup.pub  bob@tpm-b:
+scp dup.dup  bob@tpm-b:
+scp dup.seed  bob@tpm-b:
 ```
 ## On TPM-B
 
