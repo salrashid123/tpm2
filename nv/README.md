@@ -70,4 +70,16 @@ tpm2_nvread -s 1422  -C o $TPM2_EK_NV_INDEX |  openssl x509 --inform DER -text -
 
 
 
+4) Load AK Key from NV index
 
+```golang
+	// NV Indices holding GCE AK Templates
+	const (
+		GceAKTemplateNVIndexRSA uint32 = 0x01c10001
+		GceAKTemplateNVIndexECC uint32 = 0x01c10003
+	)
+```
+
+```
+go run main.go  --v=10 -alsologtostderr
+```

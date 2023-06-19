@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"os"
@@ -126,5 +128,62 @@ func main() {
 	if err := tpm2.NVReadLock(rwc, tpm2.HandleOwner, idx, emptyPassword); err != nil {
 		glog.Fatalf("Unable to  NVReadLock : %v", err)
 	}
+
+	//  *************** get Attestation Key key from NVIndex
+
+	// // Reserved Handles from "TCG TPM v2.0 Provisioning Guidance" - v1r1 - Table 2
+	// const (
+	// 	EKReservedHandle     = tpmutil.Handle(0x81010001)
+	// 	EKECCReservedHandle  = tpmutil.Handle(0x81010002)
+	// 	SRKReservedHandle    = tpmutil.Handle(0x81000001)
+	// 	SRKECCReservedHandle = tpmutil.Handle(0x81000002)
+	// )
+
+	// // NV Indices holding GCE AK Templates
+	// const (
+	// 	GceAKTemplateNVIndexRSA uint32 = 0x01c10001
+	// 	GceAKTemplateNVIndexECC uint32 = 0x01c10003
+	// )
+
+	data, err = tpm2.NVReadEx(rwc, tpmutil.Handle(client.GceAKTemplateNVIndexRSA), tpm2.HandleOwner, "", 0)
+	if err != nil {
+		glog.Fatalf("read error at index %d: %w", client.GceAKTemplateNVIndexRSA, err)
+	}
+	template, err := tpm2.DecodePublic(data)
+	if err != nil {
+		glog.Fatalf("index %d data was not a TPM key template: %w", client.GceAKTemplateNVIndexRSA, err)
+	}
+
+	akh, _, _, _, _, _, err := tpm2.CreatePrimaryEx(rwc, tpm2.HandleEndorsement, tpm2.PCRSelection{}, emptyPassword, emptyPassword, template)
+	if err != nil {
+		glog.Fatalf("creating AK: %v", err)
+	}
+	defer tpm2.FlushContext(rwc, akh)
+
+	// reread the pub eventhough tpm2.CreatePrimary* gives pub
+	tpmEkPub, name, _, err := tpm2.ReadPublic(rwc, akh)
+	if err != nil {
+		glog.Fatalf("ReadPublic failed: %s", err)
+	}
+
+	p, err := tpmEkPub.Key()
+	if err != nil {
+		glog.Fatalf("tpmEkPub.Key() failed: %s", err)
+	}
+	glog.V(10).Infof("tpmEkPub: \n%v", p)
+
+	b, err := x509.MarshalPKIXPublicKey(p)
+	if err != nil {
+		glog.Fatalf("Unable to convert ekpub: %v", err)
+	}
+
+	ekPubPEM := pem.EncodeToMemory(
+		&pem.Block{
+			Type:  "PUBLIC KEY",
+			Bytes: b,
+		},
+	)
+	glog.V(2).Infof("akPub Name: %v", hex.EncodeToString(name))
+	glog.V(2).Infof("akPub: \n%v", string(ekPubPEM))
 
 }

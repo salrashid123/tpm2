@@ -211,6 +211,27 @@ func main() {
 		return
 	}
 
+	// compare the public key used during quote against the attested public key;
+
+	qakBytes, err := x509.MarshalPKIXPublicKey(pub.Public)
+	if err != nil {
+		log.Printf("Error %v", err)
+		return
+	}
+	qakPubPEM := pem.EncodeToMemory(
+		&pem.Block{
+			Type:  "PUBLIC KEY",
+			Bytes: qakBytes,
+		},
+	)
+
+	log.Printf("quote-attested public \n%s\n", qakPubPEM)
+
+	if base64.StdEncoding.EncodeToString(qakPubPEM) != base64.StdEncoding.EncodeToString(akPubPEM) {
+		log.Printf("Attested key does not match value in quote")
+		os.Exit(1)
+	}
+
 	for _, quote := range serverPlatformAttestationParameter.Quotes {
 		if err := pub.Verify(quote, serverPlatformAttestationParameter.PCRs, nonce); err != nil {
 			log.Printf("Error %v", err)
