@@ -14,19 +14,17 @@ import (
 )
 
 const (
-	tpmDevice             = "/dev/tpm0"
-	signCertNVIndex       = 0x01c10000
-	signKeyNVIndex        = 0x01c10001
-	encryptionCertNVIndex = 0x01c00002
-	emptyPassword         = ""
+	tpmDevice = "/dev/tpm0"
+	// handles https://github.com/google/go-tpm-tools/blob/master/client/handles.go#L36-L43
+	emptyPassword = ""
 )
 
 var (
 	handleNames = map[string][]tpm2.HandleType{
-		"all":       []tpm2.HandleType{tpm2.HandleTypeLoadedSession, tpm2.HandleTypeSavedSession, tpm2.HandleTypeTransient},
-		"loaded":    []tpm2.HandleType{tpm2.HandleTypeLoadedSession},
-		"saved":     []tpm2.HandleType{tpm2.HandleTypeSavedSession},
-		"transient": []tpm2.HandleType{tpm2.HandleTypeTransient},
+		"all":       {tpm2.HandleTypeLoadedSession, tpm2.HandleTypeSavedSession, tpm2.HandleTypeTransient},
+		"loaded":    {tpm2.HandleTypeLoadedSession},
+		"saved":     {tpm2.HandleTypeSavedSession},
+		"transient": {tpm2.HandleTypeTransient},
 	}
 
 	tpmPath = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
@@ -67,7 +65,7 @@ func main() {
 	// *****************
 
 	log.Printf("     Load SigningKey and Certifcate ")
-	kk, err := client.EndorsementKeyFromNvIndex(rwc, signKeyNVIndex)
+	kk, err := client.EndorsementKeyFromNvIndex(rwc, client.GceAKTemplateNVIndexRSA)
 	if err != nil {
 		log.Printf("ERROR:  could not get EndorsementKeyFromNvIndex: %v", err)
 		return
