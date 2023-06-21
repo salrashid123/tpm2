@@ -3,6 +3,7 @@ package main
 import (
 	"crypto"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
@@ -94,6 +95,14 @@ func main() {
 
 	log.Printf("     AK Signed Data using go-tpm-tools %s", base64.StdEncoding.EncodeToString(r))
 
+	h := sha256.New()
+	h.Write(aKdataToSign)
+	if err := rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, h.Sum(nil), r); err != nil {
+		log.Printf("ERROR:  could  VerifyPKCS1v15 (signing): %v", err)
+		return
+	}
+	log.Printf("     Signature Verified")
+
 	// begin sign using go-tpm
 	aKkeyHandle := kk.Handle()
 	sessCreateHandle, _, err := tpm2.StartAuthSession(
@@ -128,7 +137,7 @@ func main() {
 		log.Printf("ERROR:  could  Sign (signing): %v", err)
 		return
 	}
-	log.Printf("     AK Signed Data %s", base64.StdEncoding.EncodeToString(aKsig.RSA.Signature))
+	log.Printf("     AK Signed Data using go-tpm %s", base64.StdEncoding.EncodeToString(aKsig.RSA.Signature))
 
 	if err := rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, aKdigest, aKsig.RSA.Signature); err != nil {
 		log.Printf("ERROR:  could  VerifyPKCS1v15 (signing): %v", err)
