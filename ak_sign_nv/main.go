@@ -6,12 +6,14 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/pem"
 	"flag"
 	"log"
 
 	"github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/tpmutil"
 )
 
 const (
@@ -104,7 +106,26 @@ func main() {
 	log.Printf("     Signature Verified")
 
 	// begin sign using go-tpm
-	aKkeyHandle := kk.Handle()
+	//aKkeyHandle := kk.Handle()
+
+	data, err := tpm2.NVReadEx(rwc, tpmutil.Handle(client.GceAKTemplateNVIndexRSA), tpm2.HandleOwner, "", 0)
+	if err != nil {
+		log.Fatalf("read error at index %d: %w", client.GceAKTemplateNVIndexRSA, err)
+	}
+	template, err := tpm2.DecodePublic(data)
+	if err != nil {
+		log.Fatalf("index %d data was not a TPM key template: %w", client.GceAKTemplateNVIndexRSA, err)
+	}
+
+	aKkeyHandle, keyName, _, _, _, _, err := tpm2.CreatePrimaryEx(rwc, tpm2.HandleEndorsement, tpm2.PCRSelection{}, emptyPassword, emptyPassword, template)
+	if err != nil {
+		log.Fatalf("Load AK failed: %s", err)
+	}
+	defer tpm2.FlushContext(rwc, aKkeyHandle)
+
+	log.Printf("akPub Name: %v", hex.EncodeToString(keyName))
+	// ***********
+
 	sessCreateHandle, _, err := tpm2.StartAuthSession(
 		rwc,
 		tpm2.HandleNull,
@@ -115,9 +136,10 @@ func main() {
 		tpm2.AlgNull,
 		tpm2.AlgSHA256)
 	if err != nil {
-		log.Printf("ERROR:  could  StartAuthSession (signing): %v", err)
-		return
+		log.Fatalf("Unable to create StartAuthSession : %v", err)
 	}
+	defer tpm2.FlushContext(rwc, sessCreateHandle)
+
 	if _, _, err := tpm2.PolicySecret(rwc, tpm2.HandleEndorsement, tpm2.AuthCommand{Session: tpm2.HandlePasswordSession, Attributes: tpm2.AttrContinueSession}, sessCreateHandle, nil, nil, nil, 0); err != nil {
 		log.Printf("ERROR:  could  PolicySecret (signing): %v", err)
 		return
