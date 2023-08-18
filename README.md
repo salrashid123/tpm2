@@ -24,13 +24,13 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 
 - `gcp_ek_ak`: read gcp ek keys from NV using go-tpm-tools and gcloud API
 
-- `ek_cert_seal`: Seal data using a _real_ tpm's ekcert signed by Optiga
+- `ek_import_blob`: Seal data using a _real_ tpm's ekcert signed by Optiga
 
 - `tpm_quote_verify`: Generate TPM Quote blob with PCR23 value (`tpm2_createak`, `tpm2_quote`, `tpm2_checkquote`)
 
 - `event_log`: Generate and Verify a TPM [event log]()
 
-- `seal_to_tpm`: Seal arbitrary data directly to TPM; use PCR Policy (`tpm2_create`, `tpm2_load`, `tpm2_seal`, `tpm2_unseal`)
+- `srk_seal_unseal`: Seal arbitrary data directly to TPM; use PCR Policy (`tpm2_create`, `tpm2_load`, `tpm2_seal`, `tpm2_unseal`)
 
 - `sign_with_ak`: Sign with Attestation Key (`tpm2_createak`, `tpm2_hash`, `tpm2_sign`, `tpm2_verifysignature`)
 

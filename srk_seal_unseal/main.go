@@ -101,5 +101,11 @@ func run(pcr int, tpmPath string, secret string) (retErr error) {
 	}
 
 	log.Printf("Key material sealed on file [%v] with PCR: %v", sealedFile, pcr)
+
+	u, err := srk.Unseal(sealed, nil)
+	if err != nil {
+		log.Fatalf("Failed to unseal: %v", err)
+	}
+	log.Printf("Unsealed %s", u)
 	return
 }
