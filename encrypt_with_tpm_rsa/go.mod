@@ -1,10 +1,11 @@
 module main
 
-go 1.19
+go 1.21.0
 
 require (
+	github.com/golang/glog v1.1.2
 	github.com/google/go-tpm v0.9.0
-	github.com/google/go-tpm-tools v0.3.13-0.20230620182252-4639ecce2aba
+	github.com/google/go-tpm-tools v0.4.0
 )
 
 require (

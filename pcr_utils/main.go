@@ -6,8 +6,8 @@ import (
 	"flag"
 
 	"github.com/golang/glog"
-	"github.com/google/go-tpm-tools/tpm2tools"
-	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm-tools/client"
+	"github.com/google/go-tpm/legacy/tpm2"
 	"github.com/google/go-tpm/tpmutil"
 )
 
@@ -49,7 +49,7 @@ func main() {
 
 	totalHandles := 0
 	for _, handleType := range handleNames[*flush] {
-		handles, err := tpm2tools.Handles(rwc, handleType)
+		handles, err := client.Handles(rwc, handleType)
 		if err != nil {
 			glog.Fatalf("getting handles: %v", err)
 		}

@@ -9,8 +9,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 
-	"github.com/google/go-tpm-tools/tpm2tools"
-	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm-tools/client"
+	"github.com/google/go-tpm/legacy/tpm2"
 )
 
 const (
@@ -76,7 +76,7 @@ func main() {
 
 	totalHandles := 0
 	for _, handleType := range handleNames["all"] {
-		handles, err := tpm2tools.Handles(rwc, handleType)
+		handles, err := client.Handles(rwc, handleType)
 		if err != nil {
 			log.Fatalf("getting handles: %v", err)
 		}

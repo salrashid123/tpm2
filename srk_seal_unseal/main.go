@@ -8,8 +8,9 @@ import (
 	"os"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/google/go-tpm-tools/tpm2tools"
-	"github.com/google/go-tpm/tpm2"
+	//"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm-tools/client"
+	"github.com/google/go-tpm/legacy/tpm2"
 	"github.com/google/go-tpm/tpmutil"
 )
 
@@ -58,7 +59,7 @@ func run(pcr int, tpmPath string, secret string) (retErr error) {
 
 	totalHandles := 0
 	for _, handleType := range handleNames["all"] {
-		handles, err := tpm2tools.Handles(rwc, handleType)
+		handles, err := client.Handles(rwc, handleType)
 		if err != nil {
 			log.Fatalf("getting handles: %v", err)
 		}
@@ -73,7 +74,7 @@ func run(pcr int, tpmPath string, secret string) (retErr error) {
 
 	log.Printf("%d handles flushed\n", totalHandles)
 
-	srk, err := tpm2tools.StorageRootKeyRSA(rwc)
+	srk, err := client.StorageRootKeyRSA(rwc)
 	if err != nil {
 		log.Fatalf("can't create srk from template: %v", err)
 	}
@@ -86,7 +87,8 @@ func run(pcr int, tpmPath string, secret string) (retErr error) {
 	log.Printf("PCR %v handle: %v", pcrList, pcrToExtend)
 
 	sel := tpm2.PCRSelection{Hash: tpm2.AlgSHA256, PCRs: []int{pcr}}
-	sOpt := tpm2tools.SealCurrent{PCRSelection: sel}
+	sOpt := client.SealOpts{
+		Current: sel}
 
 	sealed, err := srk.Seal([]byte(secret), sOpt)
 	if err != nil {
@@ -102,7 +104,9 @@ func run(pcr int, tpmPath string, secret string) (retErr error) {
 
 	log.Printf("Key material sealed on file [%v] with PCR: %v", sealedFile, pcr)
 
-	u, err := srk.Unseal(sealed, nil)
+	u, err := srk.Unseal(sealed, client.UnsealOpts{
+		CertifyCurrent: sel,
+	})
 	if err != nil {
 		log.Fatalf("Failed to unseal: %v", err)
 	}

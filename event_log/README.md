@@ -1,6 +1,10 @@
 
 # TPM EventLog
 
+>>>> update 8/22:
+
+* [https://gist.github.com/salrashid123/0c7a4a6f7465cff19d05ac50d238cd57](https://gist.github.com/salrashid123/0c7a4a6f7465cff19d05ac50d238cd57)
+
 
 Generates and verifies the Event log
 

@@ -8,7 +8,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 
-	"github.com/google/go-tpm/tpm2"
+	//"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/legacy/tpm2"
 )
 
 const (

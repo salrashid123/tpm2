@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/go-attestation/attest"
 	"github.com/google/go-tpm-tools/client"
-	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/legacy/tpm2"
 )
 
 var (
@@ -169,7 +169,7 @@ func main() {
 	// server compares the outbound and inbound secrets
 	// if theyr'e the same, the server will persist attestParametersBytes from earlier for use with stuff like quote/verify
 
-	if err := os.WriteFile("aik.json", attestParametersBytes, 0600); err != nil {
+	if err := os.WriteFile("aik.json", attestParametersBytes.Bytes(), 0600); err != nil {
 		log.Printf("Error %v", err)
 		return
 	}

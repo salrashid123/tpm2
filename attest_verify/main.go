@@ -13,7 +13,9 @@ import (
 	"github.com/google/go-tpm-tools/client"
 	attestpb "github.com/google/go-tpm-tools/proto/attest"
 	"github.com/google/go-tpm-tools/server"
-	"github.com/google/go-tpm/tpm2"
+
+	//"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/legacy/tpm2"
 )
 
 var (

@@ -57,9 +57,22 @@ At this point `secret.txt.enc` is encrypted.
 ```bash
 tpm2_rsadecrypt -c key.ctx -o secret.txt.dec  secret.txt.enc
 
+# or with persisted handle
+tpm2_rsadecrypt -c 0x81008000 secret.txt.enc
+
 more secret.txt.dec
  meet me at...
 ```
+
+If you reboot, you can either use the persisted context or reload the primary and key:
+
+```bash
+tpm2_createprimary -C o -c primary.ctx
+tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+tpm2_rsadecrypt -c key.ctx secret.txt.enc
+   meet me at...
+```
+
 ---
 
 

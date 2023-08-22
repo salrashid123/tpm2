@@ -16,9 +16,7 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/google/go-tpm-tools/client"
-	pb "github.com/google/go-tpm-tools/proto/tpm"
-	"github.com/google/go-tpm-tools/server"
-	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/legacy/tpm2"
 )
 
 const defaultRSAExponent = 1<<16 + 1
@@ -214,7 +212,7 @@ func createKeys(pcr int, tpmPath string) (n string, retErr error) {
 	}
 	defer tpm2.FlushContext(rwc, sessCreateHandle)
 
-	if _, err := tpm2.PolicySecret(rwc, tpm2.HandleEndorsement, tpm2.AuthCommand{Session: tpm2.HandlePasswordSession, Attributes: tpm2.AttrContinueSession}, sessCreateHandle, nil, nil, nil, 0); err != nil {
+	if _, _, err := tpm2.PolicySecret(rwc, tpm2.HandleEndorsement, tpm2.AuthCommand{Session: tpm2.HandlePasswordSession, Attributes: tpm2.AttrContinueSession}, sessCreateHandle, nil, nil, nil, 0); err != nil {
 		glog.Fatalf("Unable to create PolicySecret: %v", err)
 	}
 
@@ -273,7 +271,7 @@ func createKeys(pcr int, tpmPath string) (n string, retErr error) {
 	}
 	defer tpm2.FlushContext(rwc, loadCreateHandle)
 
-	if _, err := tpm2.PolicySecret(rwc, tpm2.HandleEndorsement, tpm2.AuthCommand{Session: tpm2.HandlePasswordSession, Attributes: tpm2.AttrContinueSession}, loadCreateHandle, nil, nil, nil, 0); err != nil {
+	if _, _, err := tpm2.PolicySecret(rwc, tpm2.HandleEndorsement, tpm2.AuthCommand{Session: tpm2.HandlePasswordSession, Attributes: tpm2.AttrContinueSession}, loadCreateHandle, nil, nil, nil, 0); err != nil {
 		glog.Fatalf("Unable to create PolicySecret: %v", err)
 	}
 
@@ -365,7 +363,7 @@ func quote(pcr int, tpmPath string, sec string) (attestation, signature, evtLog 
 	}
 	defer tpm2.FlushContext(rwc, loadCreateHandle)
 
-	if _, err := tpm2.PolicySecret(rwc, tpm2.HandleEndorsement, tpm2.AuthCommand{Session: tpm2.HandlePasswordSession, Attributes: tpm2.AttrContinueSession}, loadCreateHandle, nil, nil, nil, 0); err != nil {
+	if _, _, err := tpm2.PolicySecret(rwc, tpm2.HandleEndorsement, tpm2.AuthCommand{Session: tpm2.HandlePasswordSession, Attributes: tpm2.AttrContinueSession}, loadCreateHandle, nil, nil, nil, 0); err != nil {
 		glog.Fatalf("Unable to create PolicySecret: %v", err)
 	}
 
@@ -462,28 +460,5 @@ func verify(pcr int, tpmPath string, sec string, attestation []byte, sigBytes []
 	}
 	glog.V(2).Infof("Attestation Verified ")
 
-	//bt, err := hex.DecodeString("24af52a4f429b71a3184a6d64cddad17e54ea030e2aa6576bf3a5a3d8bd3328f")  // GCE ubuntu21, sha256 no sb
-	//bt, err := hex.DecodeString("0f2d3a2a1adaa479aeeca8f5df76aadc41b862ea") // GCE debian10, sha1 sb, https://github.com/google/go-tpm-tools/blob/master/server/eventlog_test.go#L226
-	bt, err := hex.DecodeString(*pcrValue)
-	if err != nil {
-		glog.Fatalf("Error decoding pcr %v", err)
-	}
-	pcrMap := map[uint32][]byte{uint32(pcr): bt}
-
-	pcrs := &pb.PCRs{Hash: pb.HashAlgo_SHA1, Pcrs: pcrMap}
-
-	//events, err := server.ParseAndVerifyEventLog(evtLog, pcrs)
-	events, err := server.ParseAndVerifyEventLog(evtLog, pcrs)
-	if err != nil {
-		glog.Fatalf("failed to read PCRs: %v", err)
-	}
-
-	for _, event := range events {
-		glog.V(2).Infof("Event Type %v\n", event.Type)
-		glog.V(2).Infof("PCR Index %d\n", event.Index)
-		glog.V(2).Infof("Event Data %s\n", hex.EncodeToString(event.Data))
-		glog.V(2).Infof("Event Digest %s\n", hex.EncodeToString(event.Digest))
-	}
-	glog.V(2).Infof("EventLog Verified ")
 	return
 }

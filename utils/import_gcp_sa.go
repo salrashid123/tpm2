@@ -36,8 +36,9 @@ import (
 	"encoding/pem"
 
 	"github.com/golang/glog"
-	"github.com/google/go-tpm-tools/tpm2tools"
-	"github.com/google/go-tpm/tpm2"
+
+	"github.com/google/go-tpm-tools/client"
+	"github.com/google/go-tpm/legacy/tpm2"
 	"github.com/google/go-tpm/tpmutil"
 	"golang.org/x/crypto/pkcs12"
 )
@@ -140,7 +141,7 @@ func main() {
 	glog.V(2).Infof("======= Flushing Transient Handles ========")
 	totalHandles := 0
 	for _, handleType := range handleNames["transient"] {
-		handles, err := tpm2tools.Handles(rwc, handleType)
+		handles, err := client.Handles(rwc, handleType)
 		if err != nil {
 			glog.Fatalf("    getting handles: %v", err)
 		}
