@@ -22,6 +22,8 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 
 - `encrypt_with_tpm_rsa`: Encrypt with RSA Key generated on TPM (`tpm2_create`, `tpm2_rsaencrypt, tpm2_decrypt`)
 
+- `chained_keys`: Encrypt/Decrypt using parent->child->child keys
+
 - `gcp_ek_ak`: read gcp ek keys from NV using go-tpm-tools and gcloud API
 
 - `ek_import_blob`: Seal data using a _real_ tpm's ekcert signed by Optiga

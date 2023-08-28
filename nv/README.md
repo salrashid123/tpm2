@@ -1,4 +1,11 @@
 
+list persistent handles
+
+```bash
+# tpm2_getcap handles-persistent
+- 0x81008000
+```
+
 https://github.com/tpm2-software/tpm2-tools/blob/master/test/integration/tests/nv.sh
 
 ```bash
