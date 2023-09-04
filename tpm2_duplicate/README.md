@@ -403,6 +403,72 @@ MwIDAQAB
 -----END PUBLIC KEY-----
 ```
 
+#### Duplicate an externally loaded HMAC key
+
+- tpm-b
+
+```bash
+tpm2_createprimary -C o -g sha256 -G rsa -c primary.ctx
+
+tpm2_create  -C primary.ctx -g sha256 -G rsa \
+-r new_parent.prv  -u new_parent.pub \
+-a "restricted|sensitivedataorigin|decrypt|userwithauth"
+```
+
+[cp new_parent.pub to tpm-a]
+
+- tpm-a
+
+```bash
+export secret="change this password to a secret"
+export plain="foo"
+echo -n $secret > hmac.key
+hexkey=$(xxd -p -c 256 < hmac.key)
+echo -n $plain > data.in
+
+tpm2 createprimary -Q -G rsa -g sha256 -C e -c primary.ctx
+
+tpm2_startauthsession -S session.dat
+tpm2_policycommandcode -S session.dat -L dpolicy.dat TPM2_CC_Duplicate
+tpm2_flushcontext session.dat
+rm session.dat
+
+tpm2 import -C primary.ctx -G hmac -i hmac.key -u hmac.pub -r hmac.priv -L dpolicy.dat -a "sensitivedataorigin|userwithauth|sign"
+tpm2 load -C primary.ctx -u hmac.pub -r hmac.priv -c hmac.ctx
+tpm2_readpublic -c hmac.ctx -o dup.pub
+
+## test signature
+echo -n "foo" | tpm2_hmac -g sha256 -c hmac.ctx | xxd -p -c 256
+
+tpm2_startauthsession --policy-session -S session.dat
+tpm2_policycommandcode -S session.dat -L dpolicy.dat TPM2_CC_Duplicate
+tpm2_loadexternal -C o -u new_parent.pub -c new_parent.ctx
+tpm2_duplicate -C new_parent.ctx -c hmac.ctx -G null  -p "session:session.dat" -r dup.dup -s dup.seed
+```
+
+[cp dup.pub, dup.dup, dup.seed to tpm-a]
+
+- tpm-b
+
+```bash
+tpm2_startauthsession --policy-session -S session.dat
+tpm2_policycommandcode -S session.dat -L dpolicy.dat TPM2_CC_Duplicate
+tpm2_flushcontext --transient-object
+tpm2_load -C primary.ctx -u new_parent.pub -r new_parent.prv -c new_parent.ctx
+
+tpm2_import -C new_parent.ctx -u dup.pub -i dup.dup -r dup.prv -s dup.seed -L dpolicy.dat
+tpm2_flushcontext --transient-object
+tpm2_load -C new_parent.ctx -u dup.pub -r dup.prv -c dup.ctx
+
+## test signature
+echo -n "foo" | tpm2_hmac -g sha256 -c dup.ctx | xxd -p -c 256
+
+
+## either persist dup.ctx to persistent handle or reload from scratch
+# tpm2_createprimary -C o -g sha256 -G rsa -c primary.ctx
+# tpm2_load -C primary.ctx -u new_parent.pub -r new_parent.prv -c new_parent.ctx
+# tpm2_load -C new_parent.ctx -u dup.pub -r dup.prv -c dup.ctx
+```
 
 ## Author
 @salrashid123

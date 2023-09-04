@@ -53,4 +53,3 @@ if you run the app, you'll see the predictable hash we got with openssl and that
    digest 7c50506d993b4a10e5ae6b33ca951bf2b8c8ac399e0a34026bb0ac469bea3de2
 
 ```
-

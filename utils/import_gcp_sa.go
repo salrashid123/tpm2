@@ -5,8 +5,11 @@ package main
 
   This utility is approximately the equivalent of the following TPM2 commands:
 
-    To import GCP ServiceAccount .p12 file:
-  	  openssl pkcs12 -in svc_account.p12  -nocerts -nodes -passin pass:notasecret | openssl rsa -out private.pem
+    To import GCP ServiceAccount json file:
+
+		cat svc-account.json | jq -r '.private_key'
+		openssl rsa -out /tmp/private.pem -traditional -in /tmp/f.json
+		openssl rsa -in /tmp/private.pem -outform PEM -pubout -out public.pem
 
 	To import PEM file
 	  openssl genrsa -out private.pem 2048
@@ -20,7 +23,9 @@ package main
 	tpm2_evictcontrol -C o -c key.ctx 0x81010002
 
 
-	go run main.go --serviceAccountFile svc_account.p12 --primaryFileName=primary.bin --keyFileName=key.bin --logtostderr=1 -v 10
+	the private.pem must be ParsePKCS1PrivateKey ("-BEGIN RSA PRIVATE KEY")
+
+	go run main.go --serviceAccountFile private.pem --primaryFileName=primary.bin --keyFileName=key.bin --logtostderr=1 -v 10
 
 	go run main.go --pemFile private.pem --primaryFileName=primary.bin --keyFileName=key.bin --logtostderr=1 -v 10
 */
@@ -40,7 +45,6 @@ import (
 	"github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm/legacy/tpm2"
 	"github.com/google/go-tpm/tpmutil"
-	"golang.org/x/crypto/pkcs12"
 )
 
 const (
@@ -50,10 +54,10 @@ const (
 
 var (
 	handleNames = map[string][]tpm2.HandleType{
-		"all":       []tpm2.HandleType{tpm2.HandleTypeLoadedSession, tpm2.HandleTypeSavedSession, tpm2.HandleTypeTransient},
-		"loaded":    []tpm2.HandleType{tpm2.HandleTypeLoadedSession},
-		"saved":     []tpm2.HandleType{tpm2.HandleTypeSavedSession},
-		"transient": []tpm2.HandleType{tpm2.HandleTypeTransient},
+		"all":       {tpm2.HandleTypeLoadedSession, tpm2.HandleTypeSavedSession, tpm2.HandleTypeTransient},
+		"loaded":    {tpm2.HandleTypeLoadedSession},
+		"saved":     {tpm2.HandleTypeSavedSession},
+		"transient": {tpm2.HandleTypeTransient},
 	}
 
 	defaultKeyParams = tpm2.Public{
@@ -72,12 +76,11 @@ var (
 		},
 	}
 
-	tpmPath            = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
-	keyHandle          = flag.Int("handle", 0x81010002, "Handle value")
-	serviceAccountFile = flag.String("serviceAccountFile", "", "ServiceAccount .p12 file")
-	pemFile            = flag.String("pemFile", "", "Private key PEM format file")
-	primaryFileName    = flag.String("primaryFileName", "", "Path to save the PrimaryContext.")
-	keyFileName        = flag.String("keyFileName", "", "Path to save the KeyFile.")
+	tpmPath         = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
+	keyHandle       = flag.Int("handle", 0x81010002, "Handle value")
+	pemFile         = flag.String("pemFile", "", "Private key PEM format file")
+	primaryFileName = flag.String("primaryFileName", "", "Path to save the PrimaryContext.")
+	keyFileName     = flag.String("keyFileName", "", "Path to save the KeyFile.")
 )
 
 func main() {
@@ -94,38 +97,18 @@ func main() {
 
 	var pv *rsa.PrivateKey
 
-	if *serviceAccountFile != "" {
-		glog.V(2).Infof("======= Converting ServiceAccount Key to PEM ========")
-		data, err := ioutil.ReadFile(*serviceAccountFile)
+	data, err := ioutil.ReadFile(*pemFile)
 
-		if err != nil {
-			glog.Fatalf("     Unable to read serviceAccountFile %v", err)
-		}
-
-		privateKey, certificate, err := pkcs12.Decode(data, defaultPassword)
-		if err != nil {
-			glog.Fatalf("     Unable to Parse pkcs12 file %v", err)
-		}
-		pv = privateKey.(*rsa.PrivateKey)
-
-		glog.V(8).Infof("     Certificate Subject %s", certificate.Subject)
-		glog.V(8).Infof("     Public Key Size: %d", pv.Public().(*rsa.PublicKey).Size())
+	if err != nil {
+		glog.Fatalf("     Unable to read serviceAccountFile %v", err)
 	}
-
-	if *pemFile != "" {
-		data, err := ioutil.ReadFile(*pemFile)
-
-		if err != nil {
-			glog.Fatalf("     Unable to read serviceAccountFile %v", err)
-		}
-		block, _ := pem.Decode(data)
-		if block == nil {
-			glog.Fatalf("     Failed to decode PEM block containing the key %v", err)
-		}
-		pv, err = x509.ParsePKCS1PrivateKey(block.Bytes)
-		if err != nil {
-			glog.Fatalf("     Failed to parse PEM block containing the key %v", err)
-		}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		glog.Fatalf("     Failed to decode PEM block containing the key %v", err)
+	}
+	pv, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		glog.Fatalf("     Failed to parse PEM block containing the key %v", err)
 	}
 
 	rwc, err := tpm2.OpenTPM(*tpmPath)
