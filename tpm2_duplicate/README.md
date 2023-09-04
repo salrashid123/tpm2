@@ -405,7 +405,9 @@ MwIDAQAB
 
 #### Duplicate an externally loaded HMAC key
 
-- tpm-b
+securely copy a HMAC key from one TPM to another
+
+- `tpm-b`
 
 ```bash
 tpm2_createprimary -C o -g sha256 -G rsa -c primary.ctx
@@ -417,7 +419,7 @@ tpm2_create  -C primary.ctx -g sha256 -G rsa \
 
 [cp new_parent.pub to tpm-a]
 
-- tpm-a
+- `tpm-a`
 
 ```bash
 export secret="change this password to a secret"
@@ -438,7 +440,7 @@ tpm2 load -C primary.ctx -u hmac.pub -r hmac.priv -c hmac.ctx
 tpm2_readpublic -c hmac.ctx -o dup.pub
 
 ## test signature
-echo -n "foo" | tpm2_hmac -g sha256 -c hmac.ctx | xxd -p -c 256
+echo -n  $plain | tpm2_hmac -g sha256 -c hmac.ctx | xxd -p -c 256
 
 tpm2_startauthsession --policy-session -S session.dat
 tpm2_policycommandcode -S session.dat -L dpolicy.dat TPM2_CC_Duplicate
@@ -446,9 +448,9 @@ tpm2_loadexternal -C o -u new_parent.pub -c new_parent.ctx
 tpm2_duplicate -C new_parent.ctx -c hmac.ctx -G null  -p "session:session.dat" -r dup.dup -s dup.seed
 ```
 
-[cp dup.pub, dup.dup, dup.seed to tpm-a]
+[cp `dup.pub`, `dup.dup`, `dup.seed` to tpm-b]
 
-- tpm-b
+- `tpm-b`
 
 ```bash
 tpm2_startauthsession --policy-session -S session.dat
@@ -461,10 +463,13 @@ tpm2_flushcontext --transient-object
 tpm2_load -C new_parent.ctx -u dup.pub -r dup.prv -c dup.ctx
 
 ## test signature
-echo -n "foo" | tpm2_hmac -g sha256 -c dup.ctx | xxd -p -c 256
+export plain="foo"
+echo -n $plain | tpm2_hmac -g sha256 -c dup.ctx | xxd -p -c 256
+## you should see the same as in TPM-A
 
-
-## either persist dup.ctx to persistent handle or reload from scratch
+## for peristent use, either persist dup.ctx to a non-transient handle
+#  tpm2_evictcontrol -C o -c dup.ctx 0x81008001
+## or reload the entire chain from scratch
 # tpm2_createprimary -C o -g sha256 -G rsa -c primary.ctx
 # tpm2_load -C primary.ctx -u new_parent.pub -r new_parent.prv -c new_parent.ctx
 # tpm2_load -C new_parent.ctx -u dup.pub -r dup.prv -c dup.ctx
