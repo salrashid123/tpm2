@@ -59,9 +59,7 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
       * see  to [https://github.com/salrashid123/gcp_tpm_sealed_keys](https://github.com/salrashid123/gcp_tpm_sealed_keys)
 
 - `utils`:  Utility functions
-    - Import Google Cloud Service account .p12 file  or any generic privateKey PEM into a TPM as a persistent handle.
     - Convert PEM formatted key to TPM2-tools format.
-    - Imports Generic PEM private key (no password) as a go-tpm context object you can reload.
 
 - `mTLS`:  mTLS using `go-tpm` and nginx
 
