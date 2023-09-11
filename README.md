@@ -162,6 +162,25 @@ $ openssl engine -t -c tpm2tss
         [ available ]
 ```
 
+#### Non-root access to in-kernel resource manager `/dev/tpmrm0` usint tpm2-tss
+
+For non-root access using tss resource manager
+
+* [tpm-udev.rules](https://github.com/tpm2-software/tpm2-tss/blob/master/dist/tpm-udev.rules)
+
+```bash
+# cat /etc/udev/rules.d/tpm-udev.rules 
+# tpm devices can only be accessed by the tss user but the tss
+# group members can access tpmrm devices
+KERNEL=="tpm[0-9]*", TAG+="systemd", MODE="0660", OWNER="tss"
+KERNEL=="tpmrm[0-9]*", TAG+="systemd", MODE="0660", GROUP="tss"
+```
+
+```bash
+sudo usermod -a -G tss $USER
+newgrp tss
+```
+
 #### Clear TPM objects/sessions
 ```bash
         tpm2_flushcontext --loaded-session

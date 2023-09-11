@@ -29,6 +29,8 @@ var (
 	mode  = flag.String("mode", "create", "import or create or load")
 	flush = flag.String("flush", "all", "Flush handles to HMAC")
 
+	dataToSign = []byte("secret")
+
 	handleNames = map[string][]tpm2.HandleType{
 		"all":       {tpm2.HandleTypeLoadedSession, tpm2.HandleTypeSavedSession, tpm2.HandleTypeTransient},
 		"loaded":    {tpm2.HandleTypeLoadedSession},
@@ -82,6 +84,22 @@ var (
 			},
 		},
 	}
+
+	// for RSA keys
+	grandchildTemplateRSA = tpm2.Public{
+		Type:    tpm2.AlgRSA,
+		NameAlg: tpm2.AlgSHA256,
+		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
+			tpm2.FlagUserWithAuth | tpm2.FlagSign,
+		AuthPolicy: []byte{},
+		RSAParameters: &tpm2.RSAParams{
+			Sign: &tpm2.SigScheme{
+				Alg:  tpm2.AlgRSASSA,
+				Hash: tpm2.AlgSHA256,
+			},
+			KeyBits: 2048,
+		},
+	}
 )
 
 func main() {
@@ -118,7 +136,6 @@ func main() {
 	}
 
 	pcrSelection := tpm2.PCRSelection{}
-	iv := bytes.Repeat([]byte("a"), 16)
 
 	if *mode == "create" {
 		fmt.Printf("======= CreatePrimary ========\n")
@@ -155,6 +172,7 @@ func main() {
 
 		fmt.Printf("======= Create GrandChild ========\n")
 
+		//grandchildpriv, grandchildpub, _, _, _, err := tpm2.CreateKey(rwc, childHandle, pcrSelection, defaultPassword, defaultPassword, grandchildTemplateRSA)
 		grandchildpriv, grandchildpub, _, _, _, err := tpm2.CreateKey(rwc, childHandle, pcrSelection, defaultPassword, defaultPassword, grandchildTemplate)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error  CreateKey %v\n", err)
@@ -178,9 +196,9 @@ func main() {
 			os.Exit(1)
 		}
 
-		fmt.Printf("======= Encrypt with GrandChild ========\n")
+		// fmt.Printf("======= Encrypt with GrandChild ========\n")
 		data := []byte("foooo")
-
+		iv := bytes.Repeat([]byte("a"), 16)
 		encrypted, err := tpm2.EncryptSymmetric(rwc, emptyPassword, grandchildHandle, iv, data)
 		if err != nil {
 			log.Fatalf("EncryptSymmetric failed: %s", err)
@@ -199,6 +217,25 @@ func main() {
 		}
 
 		log.Printf("decrypted %s\n", decrypted)
+
+		// fmt.Printf("======= RSA ========\n")
+		// for RSA grandchild
+		// khDigest, khValidation, err := tpm2.Hash(rwc, tpm2.AlgSHA256, dataToSign, tpm2.HandleOwner)
+		// if err != nil {
+		// 	log.Fatalf("Hash failed unexpectedly: %v", err)
+		// 	return
+		// }
+
+		// sig, err := tpm2.Sign(rwc, grandchildHandle, emptyPassword, khDigest[:], khValidation, &tpm2.SigScheme{
+		// 	Alg:  tpm2.AlgRSASSA,
+		// 	Hash: tpm2.AlgSHA256,
+		// })
+		// if err != nil {
+		// 	log.Fatalf("Error Signing: %v", err)
+		// }
+
+		// log.Printf("Signature data:  %s", base64.RawStdEncoding.EncodeToString([]byte(sig.RSA.Signature)))
+
 	}
 
 	if *mode == "load" {
@@ -260,6 +297,23 @@ func main() {
 		}
 
 		log.Printf("decrypted %s\n", decrypted)
+
+		// fmt.Printf("======= Sign ========\n")
+		// for RSA key using go-tpm-tools
+		/// init Key
+
+		// kk, err := client.NewCachedKey(rwc, tpm2.HandleOwner, grandchildTemplate, gcH)
+		// if err != nil {
+		// 	fmt.Fprintf(os.Stderr, "can't load cached key %q: %v", *tpmPath, err)
+		// 	os.Exit(1)
+		// }
+		// s, err := kk.SignData(dataToSign)
+		// if err != nil {
+		// 	fmt.Fprintf(os.Stderr, "can't seal %q: %v", *tpmPath, err)
+		// 	os.Exit(1)
+		// }
+
+		// log.Printf("Signature data:  %s", base64.RawStdEncoding.EncodeToString(s))
 
 	}
 
