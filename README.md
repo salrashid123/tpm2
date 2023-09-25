@@ -75,6 +75,10 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 
 - `ak_sign_nv`: read Attestation Key from NV index, sign and verify for Google Compute Engine VMs
 
+- `context_chain`:  create parent, child, grandchild keys
+
+- `resource_manager`:  `tpm0`` vs `tpmrm0`
+
 ### Usage
 
 Excercising any of the scenarios above requires access to a TPM(!).  You can use `vTPM` included with a Google Cloud [Shielded VM](https://cloud.google.com/shielded-vm/) surfaced at `/dev/tpm0` on the VM
