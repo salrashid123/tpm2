@@ -1,6 +1,6 @@
 snippet on transferring an rsa key from one  VM to another using the remote's endorsement key
 
-eg, transfer rsa key from `laptop --> instance-2's TPM`
+eg, transfer rsa key from `instance-1 --> instance-2's TPM`
 
 with 
 
@@ -31,13 +31,9 @@ MwIDAQAB
 -----END PUBLIC KEY-----
 ```
 
-### on laptop
+> copy the `ek.pub` to instance-1
 
-copy the `ek.pub` to instance-1
-
-```bash
-gcloud compute scp instance-2:ek.pub .
-```
+### on instance-1
 
 Note, in my case, the `ek.pub` is `TPM2B_PUBLIC` format (not PEM but you can extract the details too from there)
 
@@ -114,9 +110,7 @@ signingKey:
     -----END PUBLIC KEY-----
 ```
 
-### instance-1
-
-anyway assume this is the rsa key on `instance-1` we want to transfer 
+anyway, assume this is the rsa key on `instance-1` we want to transfer 
 
 ```bash
 cat rsa.pem
@@ -169,15 +163,8 @@ tpm2_flushcontext session.dat
 tpm2_duplicate -U ek.pub -G rsa -k rsa.pem -u rsa.pub -r rsa.dpriv -s rsa.seed -L policy.dat  -p testpassword
 ```
 
-### on laptop
+> copy the generated objects `rsa.pub`, `rsa.dpriv`, `rsa.seed` to `instance-2`
 
-copy the generated objects `rsa.pub`, `rsa.dpriv`, `rsa.seed` to `instance-2`
-
-```bash
-gcloud compute scp rsa.pub instance-2:
-gcloud compute scp rsa.dpriv instance-2:
-gcloud compute scp rsa.seed instance-2:
-```
 
 ### instance-2
 
@@ -223,6 +210,7 @@ tpm2 flushcontext -t
 tpm2 startauthsession --session session.ctx --policy-session
 tpm2 policysecret --session session.ctx --object-context endorsement
 
+# to reload, all you need are the encrypted private and pub that was duplicated earlier
 $ ls
 rsa.priv  rsa.pub
 
