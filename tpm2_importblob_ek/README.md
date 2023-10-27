@@ -8,6 +8,25 @@ fixes [https://github.com/google/go-tpm-tools/issues/349](https://github.com/goo
 
 >> note this is a copy of : [https://github.com/salrashid123/gcp_tpm_sealed_keys/tree/main#sealed-asymmetric-key-with-persistent-files](https://github.com/salrashid123/gcp_tpm_sealed_keys/tree/main#sealed-asymmetric-key-with-persistent-files)
 
+
+
+### Get EK Public key
+
+either from the TPM directly
+
+```bash
+tpm2_createek -c primary.ctx -G rsa -u ek.pub -Q
+tpm2_readpublic -c primary.ctx -o ek.pem -f PEM -Q
+```
+
+or if you're on GCP, you can use an api remotely
+
+```bash
+gcloud compute instances get-shielded-identity instance-1 --format="value(encryptionKey.ekPub)" > /tmp/ek.pem
+```
+
+either way, transfer `ek.pem` to the system where you want to seal a candidate rsa key
+
 ##### on laptop
 
 The following program will seal and unseal an RSA key but critically, the imported RSA key on the tpm has the public/private key saved to files.
@@ -15,14 +34,13 @@ The following program will seal and unseal an RSA key but critically, the import
 THis means the key can be reused after reboots easily.
 
 ```bash
-gcloud compute instances get-shielded-identity instance-1 --format="value(encryptionKey.ekPub)" > /tmp/ek.pem
-
 openssl genrsa -out /tmp/key.pem 2048
 openssl rsa -in /tmp/key.pem -out /tmp/key_rsa.pem -traditional
 ```
 
 ##### Without PCR Policy
 
+use the `ek.pem` file to seal the rsa key
 
 ```bash
 git clone https://github.com/salrashid123/gcp_tpm_sealed_keys.git
