@@ -53,3 +53,22 @@ if you run the app, you'll see the predictable hash we got with openssl and that
    digest 7c50506d993b4a10e5ae6b33ca951bf2b8c8ac399e0a34026bb0ac469bea3de2
 
 ```
+
+### hmac import to files
+
+The default example loads the hmac key and saves to a persistentHandle
+
+if you want to save and load to a file see the `file_import/` folder, its usage is
+
+```bash
+cd file_import/
+$ go run main.go --mode=import --secretAccessKey="change this password to a secret"
+======= Init importHMAC ========
+
+$ ls
+go.mod	go.sum	main.go  priv.dat  pub.dat
+
+$ go run main.go --mode=sign  --stringToHash="foo"
+======= Generating Signature ========
+digest 7c50506d993b4a10e5ae6b33ca951bf2b8c8ac399e0a34026bb0ac469bea3de2
+```
