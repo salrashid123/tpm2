@@ -76,6 +76,30 @@ tpm2_encryptdecrypt -Q --iv iv.bin  -c aes.ctx -o cipher.out   secret.dat  -p"pc
 tpm2_encryptdecrypt -Q --iv iv.bin  -c aes.ctx -d -o plain.out cipher.out  -p"pcr:sha256:23=pcr23_val.bin"
 
 
+## with session
+echo "foo" > secret.dat
+openssl rand  -out iv.bin 16
+
+tpm2_startauthsession -S session.dat
+tpm2_policypcr -S session.dat -l "sha256:0,23"  -L policy.dat
+tpm2_flushcontext session.dat
+
+tpm2_createprimary -C o -l "sha256:0,23" -g sha256 -G rsa -c primary.ctx
+tpm2_create -g sha256 -G aes128cfb -u key.pub -r key.priv -C primary.ctx -L policy.dat
+tpm2_load -C primary.ctx -u key.pub -r key.priv -n key.name -c aes.ctx
+
+tpm2_startauthsession --policy-session --session=session.dat
+tpm2_policypcr --session=session.dat --pcr-list="sha256:0,23"
+tpm2_encryptdecrypt -Q --iv iv.bin  -c aes.ctx -o cipher.out   secret.dat  --auth=session:session.dat
+tpm2_flushcontext session.dat
+
+tpm2_startauthsession --policy-session --session=session.dat
+tpm2_policypcr --session=session.dat --pcr-list="sha256:0,23"
+tpm2_encryptdecrypt -Q --iv iv.bin  -c aes.ctx -d -o plain.out cipher.out --auth=session:session.dat
+tpm2_flushcontext session.dat
+
+cat plain.out
+
 ## or with session with pcr and password policy  policyHash = 57689d20acc2066a79fb75da85c049b4c332ffeeff1f84f67f8e6bd815b4c994
 ## Encrypt/Decrypt
 
