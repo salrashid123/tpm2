@@ -66,7 +66,7 @@ var (
 	plaintext = flag.String("plaintext", "hello world", "plaintext to encrypt")
 
 	flush      = flag.String("flush", "none", "Flush contexts, must be oneof transient|saved|loaded|all")
-	pcrsValues = flag.String("pcrValues", "0=d0c70a9310cd0b55767084333022ce53f42befbb69c059ee6c0a32766f160783,23=db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71", "SHA256 PCR Values to seal against 23=foo,20=bar.")
+	pcrsValues = flag.String("pcrValues", "0=d0c70a9310cd0b55767084333022ce53f42befbb69c059ee6c0a32766f160783,23=f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b", "SHA256 PCR Values to seal against 23=foo,20=bar.")
 	pcrMap     = map[uint32][]byte{}
 
 	dataToSign = []byte("secret")
