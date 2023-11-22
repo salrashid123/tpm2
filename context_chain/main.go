@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 
@@ -16,11 +15,18 @@ import (
 const (
 	emptyPassword   = ""
 	defaultPassword = ""
-	cPub            = "childPub.bin"
-	cPriv           = "childPriv.bin"
-	gPub            = "grandchildPub.bin"
-	gPriv           = "grandchildPriv.bin"
-	encryptedData   = "encrypteddata.bin"
+
+	rootP = ""
+
+	parentP     = "foo"
+	childP      = "bar"
+	grandchildP = "qux"
+
+	cPub          = "childPub.bin"
+	cPriv         = "childPriv.bin"
+	gPub          = "grandchildPub.bin"
+	gPriv         = "grandchildPriv.bin"
+	encryptedData = "encrypteddata.bin"
 )
 
 var (
@@ -106,6 +112,9 @@ func main() {
 
 	flag.Parse()
 
+	data := []byte("foooo")
+	iv := bytes.Repeat([]byte("a"), 16)
+
 	rwc, err := tpm2.OpenTPM(*tpmPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Can't open TPM %s: %v", *tpmPath, err)
@@ -139,7 +148,7 @@ func main() {
 
 	if *mode == "create" {
 		fmt.Printf("======= CreatePrimary ========\n")
-		pkh, _, err := tpm2.CreatePrimary(rwc, tpm2.HandleOwner, pcrSelection, emptyPassword, emptyPassword, primaryTemplate)
+		pkh, _, err := tpm2.CreatePrimary(rwc, tpm2.HandleOwner, pcrSelection, rootP, parentP, primaryTemplate)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating Primary %v\n", err)
 			os.Exit(1)
@@ -147,24 +156,24 @@ func main() {
 		defer tpm2.FlushContext(rwc, pkh)
 
 		fmt.Printf("======= Create Child ========\n")
-		childpriv, childpub, _, _, _, err := tpm2.CreateKey(rwc, pkh, pcrSelection, defaultPassword, defaultPassword, childTepmplate)
+		childpriv, childpub, _, _, _, err := tpm2.CreateKey(rwc, pkh, pcrSelection, parentP, childP, childTepmplate)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error  CreateKey %v\n", err)
 			os.Exit(1)
 		}
-		childHandle, _, err := tpm2.Load(rwc, pkh, defaultPassword, childpub, childpriv)
+		childHandle, _, err := tpm2.Load(rwc, pkh, parentP, childpub, childpriv)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error  loading  key %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error  loading  key1 %v\n", err)
 			os.Exit(1)
 		}
 		defer tpm2.FlushContext(rwc, childHandle)
 
-		err = ioutil.WriteFile(cPub, childpub, 0644)
+		err = os.WriteFile(cPub, childpub, 0644)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "childPub failed for childFile%v\n", err)
 			os.Exit(1)
 		}
-		err = ioutil.WriteFile(cPriv, childpriv, 0644)
+		err = os.WriteFile(cPriv, childpriv, 0644)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "childriv failed for childFile%v\n", err)
 			os.Exit(1)
@@ -172,46 +181,44 @@ func main() {
 
 		fmt.Printf("======= Create GrandChild ========\n")
 
-		//grandchildpriv, grandchildpub, _, _, _, err := tpm2.CreateKey(rwc, childHandle, pcrSelection, defaultPassword, defaultPassword, grandchildTemplateRSA)
-		grandchildpriv, grandchildpub, _, _, _, err := tpm2.CreateKey(rwc, childHandle, pcrSelection, defaultPassword, defaultPassword, grandchildTemplate)
+		grandchildpriv, grandchildpub, _, _, _, err := tpm2.CreateKey(rwc, childHandle, pcrSelection, childP, grandchildP, grandchildTemplate)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error  CreateKey %v\n", err)
 			os.Exit(1)
 		}
-		grandchildHandle, _, err := tpm2.Load(rwc, childHandle, defaultPassword, grandchildpub, grandchildpriv)
+		grandchildHandle, _, err := tpm2.Load(rwc, childHandle, childP, grandchildpub, grandchildpriv)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error  loading  key %v\n", err)
 			os.Exit(1)
 		}
 		defer tpm2.FlushContext(rwc, grandchildHandle)
 
-		err = ioutil.WriteFile(gPub, grandchildpub, 0644)
+		err = os.WriteFile(gPub, grandchildpub, 0644)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "grandchildpub failed for childFile%v\n", err)
 			os.Exit(1)
 		}
-		err = ioutil.WriteFile(gPriv, grandchildpriv, 0644)
+		err = os.WriteFile(gPriv, grandchildpriv, 0644)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "grandchildpriv failed for childFile%v\n", err)
 			os.Exit(1)
 		}
 
 		// fmt.Printf("======= Encrypt with GrandChild ========\n")
-		data := []byte("foooo")
-		iv := bytes.Repeat([]byte("a"), 16)
-		encrypted, err := tpm2.EncryptSymmetric(rwc, emptyPassword, grandchildHandle, iv, data)
+
+		encrypted, err := tpm2.EncryptSymmetric(rwc, grandchildP, grandchildHandle, iv, data)
 		if err != nil {
 			log.Fatalf("EncryptSymmetric failed: %s", err)
 		}
 		log.Printf("Encrypted %s", base64.StdEncoding.EncodeToString(encrypted))
 
-		err = ioutil.WriteFile(encryptedData, encrypted, 0644)
+		err = os.WriteFile(encryptedData, encrypted, 0644)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "grandchildpriv failed for childFile%v\n", err)
 			os.Exit(1)
 		}
 
-		decrypted, err := tpm2.DecryptSymmetric(rwc, emptyPassword, grandchildHandle, iv, encrypted)
+		decrypted, err := tpm2.DecryptSymmetric(rwc, grandchildP, grandchildHandle, iv, encrypted)
 		if err != nil {
 			log.Fatalf("DecryptSymmetric failed: %s", err)
 		}
@@ -226,7 +233,7 @@ func main() {
 		// 	return
 		// }
 
-		// sig, err := tpm2.Sign(rwc, grandchildHandle, emptyPassword, khDigest[:], khValidation, &tpm2.SigScheme{
+		// sig, err := tpm2.Sign(rwc, grandchildHandle, grandchildP, khDigest[:], khValidation, &tpm2.SigScheme{
 		// 	Alg:  tpm2.AlgRSASSA,
 		// 	Hash: tpm2.AlgSHA256,
 		// })
@@ -241,7 +248,7 @@ func main() {
 	if *mode == "load" {
 		fmt.Printf("======= LoadPrimary ========\n")
 
-		pkh, _, err := tpm2.CreatePrimary(rwc, tpm2.HandleOwner, pcrSelection, emptyPassword, emptyPassword, primaryTemplate)
+		pkh, _, err := tpm2.CreatePrimary(rwc, tpm2.HandleOwner, pcrSelection, rootP, parentP, primaryTemplate)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating Primary %v\n", err)
 			os.Exit(1)
@@ -250,16 +257,16 @@ func main() {
 
 		fmt.Printf("======= LoadChild ========\n")
 
-		childpub, err := ioutil.ReadFile(cPub)
+		childpub, err := os.ReadFile(cPub)
 		if err != nil {
 			log.Fatalf("unable to read file: %v", err)
 		}
-		childpriv, err := ioutil.ReadFile(cPriv)
+		childpriv, err := os.ReadFile(cPriv)
 		if err != nil {
 			log.Fatalf("unable to read file: %v", err)
 		}
 
-		childHandle, _, err := tpm2.Load(rwc, pkh, defaultPassword, childpub, childpriv)
+		childHandle, _, err := tpm2.Load(rwc, pkh, parentP, childpub, childpriv)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error  loading  key %v\n", err)
 			os.Exit(1)
@@ -267,16 +274,16 @@ func main() {
 		defer tpm2.FlushContext(rwc, childHandle)
 		fmt.Printf("======= LoadGrandChild ========\n")
 
-		grandchildpub, err := ioutil.ReadFile(gPub)
+		grandchildpub, err := os.ReadFile(gPub)
 		if err != nil {
 			log.Fatalf("unable to read file: %v", err)
 		}
-		grandchildpriv, err := ioutil.ReadFile(gPriv)
+		grandchildpriv, err := os.ReadFile(gPriv)
 		if err != nil {
 			log.Fatalf("unable to read file: %v", err)
 		}
 
-		gcH, _, err := tpm2.Load(rwc, childHandle, defaultPassword, grandchildpub, grandchildpriv)
+		gcH, _, err := tpm2.Load(rwc, childHandle, childP, grandchildpub, grandchildpriv)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error  loading  key %v\n", err)
 			os.Exit(1)
@@ -286,12 +293,12 @@ func main() {
 
 		fmt.Printf("======= Decrypt ========\n")
 
-		encrypted, err := ioutil.ReadFile(encryptedData)
+		encrypted, err := os.ReadFile(encryptedData)
 		if err != nil {
 			log.Fatalf("unable to read file: %v", err)
 		}
 
-		decrypted, err := tpm2.DecryptSymmetric(rwc, emptyPassword, gcH, iv, encrypted)
+		decrypted, err := tpm2.DecryptSymmetric(rwc, grandchildP, gcH, iv, encrypted)
 		if err != nil {
 			log.Fatalf("DecryptSymmetric failed: %s", err)
 		}
