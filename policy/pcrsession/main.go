@@ -5,6 +5,8 @@ import (
 	"crypto/aes"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -13,44 +15,127 @@ import (
 	"strconv"
 	"strings"
 
-	"encoding/base64"
-	"encoding/hex"
-
-	//"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm/legacy/tpm2"
 	"github.com/google/go-tpm/tpmutil"
-	//"github.com/google/go-tpm/tpmutil"
 )
 
+/*
+
+crate parent, child, grandchild all bound to policypassword and a specific pcr value
+use the grandchild to encrypt/decrypt
+
+	   $ tpm2_pcrread sha256:0,23
+	     sha256:
+	       0 : 0xD0C70A9310CD0B55767084333022CE53F42BEFBB69C059EE6C0A32766F160783
+	       23: 0x0000000000000000000000000000000000000000000000000000000000000000
+
+
+	   ## to mutate the pcr value
+	   $ tpm2_pcrextend 23:sha256=0x0000000000000000000000000000000000000000000000000000000000000000
+
+	   $ tpm2_pcrread sha256:0,23
+	     sha256:
+	       0 : 0xD0C70A9310CD0B55767084333022CE53F42BEFBB69C059EE6C0A32766F160783
+	       23: 0xF5A5FD42D16A20302798EF6ED309979B43003D2320D9F0E8EA9831A92759FB4B
+
+  go run . --mode=create
+  go run . --mode=load
+
+*/
+
 const (
-	emptyPassword = ""
+	rootP           = ""
+	defaultPassword = ""
+	parentP         = "foo"
+	childP          = "bar"
+	grandchildP     = "qux"
+
+	cPub          = "childPub.bin"
+	cPriv         = "childPriv.bin"
+	gPub          = "grandchildPub.bin"
+	gPriv         = "grandchildPriv.bin"
+	encryptedData = "encrypteddata.bin"
 )
 
 var (
-	mode               = flag.String("mode", "", "create,encrypt,decrypt,extend")
-	tpmPath            = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
-	persistentHandle   = flag.Uint("persistentHandle", 0x81008004, "Handle value")
-	pubFile            = flag.String("pubFile", "pub.dat", "Public part of the key")
-	privFile           = flag.String("privFile", "priv.dat", "Private part of the key")
-	encryptedFile      = flag.String("encryptedFile", "blob.json", "file to write the blob data")
-	ivFile             = flag.String("ivFile", "iv.dat", "Initialization Vector ")
-	secret             = flag.String("secret", "meet me at...", "secret")
-	pcrsValues         = flag.String("pcrValues", "", "SHA256 PCR Values to seal against 0=foo,23=bar.")
-	pcrMap             = map[uint32][]byte{}
-	flush              = flag.String("flush", "all", "Flush contexts, must be oneof transient|saved|loaded|all")
-	pcr                = flag.Int("pcr", 23, "PCR Value to read or increment")
-	authCommandUseAuth tpm2.AuthCommand
+	tpmPath = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
+
+	mode = flag.String("mode", "create", "create or load")
+
+	plaintext = flag.String("plaintext", "hello world", "plaintext to encrypt")
+
+	flush      = flag.String("flush", "none", "Flush contexts, must be oneof transient|saved|loaded|all")
+	pcrsValues = flag.String("pcrValues", "0=d0c70a9310cd0b55767084333022ce53f42befbb69c059ee6c0a32766f160783,23=db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71", "SHA256 PCR Values to seal against 23=foo,20=bar.")
+	pcrMap     = map[uint32][]byte{}
+
+	dataToSign = []byte("secret")
+
+	handleNames = map[string][]tpm2.HandleType{
+		"all":       {tpm2.HandleTypeLoadedSession, tpm2.HandleTypeSavedSession, tpm2.HandleTypeTransient},
+		"loaded":    {tpm2.HandleTypeLoadedSession},
+		"saved":     {tpm2.HandleTypeSavedSession},
+		"transient": {tpm2.HandleTypeTransient},
+	}
+
+	primaryTemplate = tpm2.Public{
+		Type:    tpm2.AlgRSA,
+		NameAlg: tpm2.AlgSHA256,
+		Attributes: tpm2.FlagDecrypt | tpm2.FlagRestricted | tpm2.FlagFixedTPM |
+			tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin | tpm2.FlagUserWithAuth,
+		AuthPolicy: []byte(defaultPassword),
+		RSAParameters: &tpm2.RSAParams{
+			Symmetric: &tpm2.SymScheme{
+				Alg:     tpm2.AlgAES,
+				KeyBits: 128,
+				Mode:    tpm2.AlgCFB,
+			},
+			KeyBits: 2048,
+		},
+	}
+
+	childTepmplate = tpm2.Public{
+		Type:    tpm2.AlgRSA,
+		NameAlg: tpm2.AlgSHA256,
+		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
+			tpm2.FlagUserWithAuth | tpm2.FlagDecrypt | tpm2.FlagRestricted,
+		AuthPolicy: []byte{},
+		RSAParameters: &tpm2.RSAParams{
+			Symmetric: &tpm2.SymScheme{
+				Alg:     tpm2.AlgAES,
+				KeyBits: 128,
+				Mode:    tpm2.AlgCFB,
+			},
+			KeyBits: 2048,
+		},
+	}
+
+	grandchildTemplate = tpm2.Public{
+		Type:    tpm2.AlgSymCipher,
+		NameAlg: tpm2.AlgSHA256,
+		Attributes: tpm2.FlagDecrypt | tpm2.FlagSign |
+			tpm2.FlagFixedParent | tpm2.FlagFixedTPM | tpm2.FlagSensitiveDataOrigin,
+		AuthPolicy: []byte{},
+		SymCipherParameters: &tpm2.SymCipherParams{
+			Symmetric: &tpm2.SymScheme{
+				Alg:     tpm2.AlgAES,
+				KeyBits: 128,
+				Mode:    tpm2.AlgCFB,
+			},
+		},
+	}
 )
 
-var handleNames = map[string][]tpm2.HandleType{
-	"all":       {tpm2.HandleTypeLoadedSession, tpm2.HandleTypeSavedSession, tpm2.HandleTypeTransient},
-	"loaded":    {tpm2.HandleTypeLoadedSession},
-	"saved":     {tpm2.HandleTypeSavedSession},
-	"transient": {tpm2.HandleTypeTransient},
-}
-
 func main() {
+
+	flag.Parse()
+
+	data := []byte(*plaintext)
+
+	iv := make([]byte, aes.BlockSize)
+	if _, err := rand.Read(iv); err != nil {
+		log.Fatalf("error creating iv %v\n", err)
+	}
 
 	flag.Parse()
 	log.Println("======= Init  ========")
@@ -61,7 +146,7 @@ func main() {
 	}
 	defer func() {
 		if err := rwc.Close(); err != nil {
-			log.Fatalf("%v\ncan't close TPM %s: %v", *tpmPath, err)
+			log.Fatalf("\ncan't close TPM %s: %v", *tpmPath, err)
 		}
 	}()
 
@@ -82,25 +167,6 @@ func main() {
 		}
 	}
 
-	/*
-	   $ tpm2_pcrread sha256:0,23
-	     sha256:
-	       0 : 0xD0C70A9310CD0B55767084333022CE53F42BEFBB69C059EE6C0A32766F160783
-	       23: 0x0000000000000000000000000000000000000000000000000000000000000000
-
-
-	   ## to mutate the pcr value
-	   $ tpm2_pcrextend 23:sha256=0x0000000000000000000000000000000000000000000000000000000000000000
-
-	   $ tpm2_pcrread sha256:0,23
-	     sha256:
-	       0 : 0xD0C70A9310CD0B55767084333022CE53F42BEFBB69C059EE6C0A32766F160783
-	       23: 0xF5A5FD42D16A20302798EF6ED309979B43003D2320D9F0E8EA9831A92759FB4B
-
-	*/
-
-	*pcrsValues = "0=d0c70a9310cd0b55767084333022ce53f42befbb69c059ee6c0a32766f160783,23=c78009fdf07fc56a11f122370658a353aaa542ed63e44c4bc15ff4cd105ab33c"
-
 	pcrMap := make(map[uint32][]byte)
 
 	entries := strings.Split(*pcrsValues, ",")
@@ -120,24 +186,9 @@ func main() {
 		}
 		pcrMap[uint32(u)] = hv
 		pcrRegisters = append(pcrRegisters, int(u))
-
 	}
 
 	pcrSelection := tpm2.PCRSelection{Hash: tpm2.AlgSHA256, PCRs: pcrRegisters}
-
-	sessCreateHandle, _, err := tpm2.StartAuthSession(
-		rwc,
-		tpm2.HandleNull,
-		tpm2.HandleNull,
-		make([]byte, sha256.Size),
-		nil,
-		tpm2.SessionTrial,
-		tpm2.AlgNull,
-		tpm2.AlgSHA256)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to create StartAuthSession : %v", err)
-		os.Exit(1)
-	}
 
 	pcrval, err := tpm2.ReadPCRs(rwc, pcrSelection)
 	if err != nil {
@@ -153,167 +204,411 @@ func main() {
 
 	expectedDigest := sha256.Sum256(expectedVal)
 
-	if err := tpm2.PolicyPCR(rwc, sessCreateHandle, expectedDigest[:] /*nil*/, pcrSelection); err != nil {
-		log.Fatalf("unable to bind PCRs to session: %v", err)
+	if *mode == "create" {
+		fmt.Printf("======= CreatePrimary ========\n")
+		pkh, _, err := tpm2.CreatePrimary(rwc, tpm2.HandleOwner, pcrSelection, rootP, parentP, primaryTemplate)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating Primary %v\n", err)
+			os.Exit(1)
+		}
+		// defer tpm2.FlushContext(rwc, pkh)
+
+		fmt.Printf("======= Create Child ========\n")
+
+		sessCreateChildHandle, _, err := tpm2.StartAuthSession(
+			rwc,
+			tpm2.HandleNull,
+			tpm2.HandleNull,
+			make([]byte, sha256.Size),
+			nil,
+			tpm2.SessionTrial,
+			tpm2.AlgNull,
+			tpm2.AlgSHA256)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Unable to create StartAuthSession : %v", err)
+			os.Exit(1)
+		}
+
+		if err := tpm2.PolicyPCR(rwc, sessCreateChildHandle, expectedDigest[:] /*nil*/, pcrSelection); err != nil {
+			log.Fatalf("unable to bind PCRs to session: %v", err)
+		}
+
+		policyVal, err := tpm2.PolicyGetDigest(rwc, sessCreateChildHandle)
+		if err != nil {
+			log.Fatalf("Unable to create PolicyPassword : %v", err)
+		}
+		fmt.Printf("Starting Policy Digest %s\n", hex.EncodeToString(policyVal))
+
+		childTepmplate.AuthPolicy = policyVal
+
+		childpriv, childpub, _, _, _, err := tpm2.CreateKey(rwc, pkh, pcrSelection, parentP, childP, childTepmplate)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error  CreateKey %v\n", err)
+			os.Exit(1)
+		}
+
+		childHandle, _, err := tpm2.Load(rwc, pkh, parentP, childpub, childpriv)
+		if err != nil {
+			fmt.Printf("Error %s\n", err)
+			os.Exit(1)
+		}
+
+		tpm2.FlushContext(rwc, sessCreateChildHandle)
+		tpm2.FlushContext(rwc, pkh)
+
+		err = os.WriteFile(cPub, childpub, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "childPub failed for childFile%v\n", err)
+			os.Exit(1)
+		}
+		err = os.WriteFile(cPriv, childpriv, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "childriv failed for childFile%v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("======= Create GrandChild ========\n")
+
+		sessCreateGrandChildHandle, _, err := tpm2.StartAuthSession(
+			rwc,
+			tpm2.HandleNull,
+			tpm2.HandleNull,
+			make([]byte, sha256.Size),
+			nil,
+			tpm2.SessionTrial,
+			tpm2.AlgNull,
+			tpm2.AlgSHA256)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Unable to create StartAuthSession : %v", err)
+			os.Exit(1)
+		}
+
+		if err := tpm2.PolicyPassword(rwc, sessCreateGrandChildHandle); err != nil {
+			log.Fatalf("unable to bind PCRs to session: %v", err)
+		}
+
+		if err := tpm2.PolicyPCR(rwc, sessCreateGrandChildHandle, expectedDigest[:] /*nil*/, pcrSelection); err != nil {
+			log.Fatalf("unable to bind PCRs to session: %v", err)
+		}
+
+		policyValGrandChild, err := tpm2.PolicyGetDigest(rwc, sessCreateGrandChildHandle)
+		if err != nil {
+			log.Fatalf("Unable to create PolicyPassword : %v", err)
+		}
+		fmt.Printf("Starting Policy Digest %s\n", hex.EncodeToString(policyVal))
+
+		grandchildTemplate.AuthPolicy = policyValGrandChild
+
+		grandchildpriv, grandchildpub, _, _, _, err := tpm2.CreateKey(rwc, childHandle, pcrSelection, childP, grandchildP, grandchildTemplate)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error  CreateKey %v\n", err)
+			os.Exit(1)
+		}
+
+		grandchildHandle, _, err := tpm2.Load(rwc, childHandle, childP, grandchildpub, grandchildpriv)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error  loading  key %v\n", err)
+			os.Exit(1)
+		}
+
+		tpm2.FlushContext(rwc, childHandle)
+		tpm2.FlushContext(rwc, sessCreateGrandChildHandle)
+
+		err = os.WriteFile(gPub, grandchildpub, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "grandchildpub failed for childFile%v\n", err)
+			os.Exit(1)
+		}
+		err = os.WriteFile(gPriv, grandchildpriv, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "grandchildpriv failed for childFile%v\n", err)
+			os.Exit(1)
+		}
+
+		// fmt.Printf("======= Encrypt with GrandChild ========\n")
+
+		sessUseGrandChildHandleEncrypt, _, err := tpm2.StartAuthSession(
+			rwc,
+			tpm2.HandleNull,
+			tpm2.HandleNull,
+			make([]byte, sha256.Size),
+			nil,
+			tpm2.SessionPolicy,
+			tpm2.AlgNull,
+			tpm2.AlgSHA256)
+		if err != nil {
+			fmt.Printf("Error %s\n", err)
+			os.Exit(1)
+		}
+		defer tpm2.FlushContext(rwc, sessUseGrandChildHandleEncrypt)
+
+		if err := tpm2.PolicyPassword(rwc, sessUseGrandChildHandleEncrypt); err != nil {
+			log.Fatalf("unable to bind PCRs to session: %v", err)
+		}
+
+		if err := tpm2.PolicyPCR(rwc, sessUseGrandChildHandleEncrypt, expectedDigest[:] /*nil*/, pcrSelection); err != nil {
+			fmt.Printf("Error %s\n", err)
+			os.Exit(1)
+		}
+
+		encrypted, err := EncryptSymmetricWithSession(rwc, sessUseGrandChildHandleEncrypt, grandchildP, grandchildHandle, iv, data)
+		if err != nil {
+			fmt.Printf("Error %s\n", err)
+			os.Exit(1)
+		}
+
+		log.Printf("Encrypted %s", base64.StdEncoding.EncodeToString(encrypted))
+
+		tpm2.FlushContext(rwc, sessUseGrandChildHandleEncrypt)
+
+		err = os.WriteFile(encryptedData, encrypted, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "grandchildpriv failed for childFile%v\n", err)
+			os.Exit(1)
+		}
+
+		sessUseGrandChildHandleDecrypt, _, err := tpm2.StartAuthSession(
+			rwc,
+			tpm2.HandleNull,
+			tpm2.HandleNull,
+			make([]byte, sha256.Size),
+			nil,
+			tpm2.SessionPolicy,
+			tpm2.AlgNull,
+			tpm2.AlgSHA256)
+		if err != nil {
+			fmt.Printf("Error %s\n", err)
+			os.Exit(1)
+		}
+		defer tpm2.FlushContext(rwc, sessUseGrandChildHandleDecrypt)
+
+		if err := tpm2.PolicyPassword(rwc, sessUseGrandChildHandleDecrypt); err != nil {
+			log.Fatalf("unable to bind PCRs to session: %v", err)
+		}
+
+		if err := tpm2.PolicyPCR(rwc, sessUseGrandChildHandleDecrypt, expectedDigest[:] /*nil*/, pcrSelection); err != nil {
+			fmt.Printf("Error %s\n", err)
+			os.Exit(1)
+		}
+
+		decrypted, err := EncryptSymmetricWithSession(rwc, sessUseGrandChildHandleEncrypt, grandchildP, grandchildHandle, iv, encrypted)
+		if err != nil {
+			log.Fatalf("DecryptSymmetric failed: %s", err)
+		}
+
+		log.Printf("Decrypted %s", string(decrypted))
+		tpm2.FlushContext(rwc, sessUseGrandChildHandleDecrypt)
+		tpm2.FlushContext(rwc, grandchildHandle)
+
 	}
 
-	policyVal, err := tpm2.PolicyGetDigest(rwc, sessCreateHandle)
-	if err != nil {
-		log.Fatalf("Unable to create PolicyPassword : %v", err)
+	if *mode == "load" {
+
+		// load all the files
+
+		childpub, err := os.ReadFile(cPub)
+		if err != nil {
+			log.Fatalf("unable to read file: %v", err)
+		}
+		childpriv, err := os.ReadFile(cPriv)
+		if err != nil {
+			log.Fatalf("unable to read file: %v", err)
+		}
+
+		grandchildpub, err := os.ReadFile(gPub)
+		if err != nil {
+			log.Fatalf("unable to read file: %v", err)
+		}
+		grandchildpriv, err := os.ReadFile(gPriv)
+		if err != nil {
+			log.Fatalf("unable to read file: %v", err)
+		}
+
+		fmt.Printf("======= CreatePrimary ========\n")
+		pkh, _, err := tpm2.CreatePrimary(rwc, tpm2.HandleOwner, pcrSelection, rootP, parentP, primaryTemplate)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating Primary %v\n", err)
+			os.Exit(1)
+		}
+		// defer tpm2.FlushContext(rwc, pkh)
+
+		fmt.Printf("======= Create Child ========\n")
+
+		sessCreateChildHandle, _, err := tpm2.StartAuthSession(
+			rwc,
+			tpm2.HandleNull,
+			tpm2.HandleNull,
+			make([]byte, sha256.Size),
+			nil,
+			tpm2.SessionTrial,
+			tpm2.AlgNull,
+			tpm2.AlgSHA256)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Unable to create StartAuthSession : %v", err)
+			os.Exit(1)
+		}
+
+		if err := tpm2.PolicyPCR(rwc, sessCreateChildHandle, expectedDigest[:] /*nil*/, pcrSelection); err != nil {
+			log.Fatalf("unable to bind PCRs to session: %v", err)
+		}
+
+		policyVal, err := tpm2.PolicyGetDigest(rwc, sessCreateChildHandle)
+		if err != nil {
+			log.Fatalf("Unable to create PolicyPassword : %v", err)
+		}
+		fmt.Printf("Starting Policy Digest %s\n", hex.EncodeToString(policyVal))
+
+		childTepmplate.AuthPolicy = policyVal
+
+		childHandle, _, err := tpm2.Load(rwc, pkh, parentP, childpub, childpriv)
+		if err != nil {
+			fmt.Printf("Error %s\n", err)
+			os.Exit(1)
+		}
+
+		tpm2.FlushContext(rwc, sessCreateChildHandle)
+		tpm2.FlushContext(rwc, pkh)
+
+		err = os.WriteFile(cPub, childpub, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "childPub failed for childFile%v\n", err)
+			os.Exit(1)
+		}
+		err = os.WriteFile(cPriv, childpriv, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "childriv failed for childFile%v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("======= Create GrandChild ========\n")
+
+		sessCreateGrandChildHandle, _, err := tpm2.StartAuthSession(
+			rwc,
+			tpm2.HandleNull,
+			tpm2.HandleNull,
+			make([]byte, sha256.Size),
+			nil,
+			tpm2.SessionTrial,
+			tpm2.AlgNull,
+			tpm2.AlgSHA256)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Unable to create StartAuthSession : %v", err)
+			os.Exit(1)
+		}
+
+		if err := tpm2.PolicyPassword(rwc, sessCreateGrandChildHandle); err != nil {
+			log.Fatalf("unable to bind PCRs to session: %v", err)
+		}
+
+		if err := tpm2.PolicyPCR(rwc, sessCreateGrandChildHandle, expectedDigest[:] /*nil*/, pcrSelection); err != nil {
+			log.Fatalf("unable to bind PCRs to session: %v", err)
+		}
+
+		policyValGrandChild, err := tpm2.PolicyGetDigest(rwc, sessCreateGrandChildHandle)
+		if err != nil {
+			log.Fatalf("Unable to create PolicyPassword : %v", err)
+		}
+		fmt.Printf("Starting Policy Digest %s\n", hex.EncodeToString(policyVal))
+
+		grandchildTemplate.AuthPolicy = policyValGrandChild
+
+		grandchildHandle, _, err := tpm2.Load(rwc, childHandle, childP, grandchildpub, grandchildpriv)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error  loading  key %v\n", err)
+			os.Exit(1)
+		}
+
+		tpm2.FlushContext(rwc, childHandle)
+		tpm2.FlushContext(rwc, sessCreateGrandChildHandle)
+
+		err = os.WriteFile(gPub, grandchildpub, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "grandchildpub failed for childFile%v\n", err)
+			os.Exit(1)
+		}
+		err = os.WriteFile(gPriv, grandchildpriv, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "grandchildpriv failed for childFile%v\n", err)
+			os.Exit(1)
+		}
+
+		// fmt.Printf("======= Encrypt with GrandChild ========\n")
+
+		sessUseGrandChildHandleEncrypt, _, err := tpm2.StartAuthSession(
+			rwc,
+			tpm2.HandleNull,
+			tpm2.HandleNull,
+			make([]byte, sha256.Size),
+			nil,
+			tpm2.SessionPolicy,
+			tpm2.AlgNull,
+			tpm2.AlgSHA256)
+		if err != nil {
+			fmt.Printf("Error %s\n", err)
+			os.Exit(1)
+		}
+		defer tpm2.FlushContext(rwc, sessUseGrandChildHandleEncrypt)
+
+		if err := tpm2.PolicyPassword(rwc, sessUseGrandChildHandleEncrypt); err != nil {
+			log.Fatalf("unable to bind PCRs to session: %v", err)
+		}
+
+		if err := tpm2.PolicyPCR(rwc, sessUseGrandChildHandleEncrypt, expectedDigest[:] /*nil*/, pcrSelection); err != nil {
+			fmt.Printf("Error %s\n", err)
+			os.Exit(1)
+		}
+
+		encrypted, err := EncryptSymmetricWithSession(rwc, sessUseGrandChildHandleEncrypt, grandchildP, grandchildHandle, iv, data)
+		if err != nil {
+			fmt.Printf("Error %s\n", err)
+			os.Exit(1)
+		}
+
+		log.Printf("Encrypted %s", base64.StdEncoding.EncodeToString(encrypted))
+
+		tpm2.FlushContext(rwc, sessUseGrandChildHandleEncrypt)
+
+		err = os.WriteFile(encryptedData, encrypted, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "grandchildpriv failed for childFile%v\n", err)
+			os.Exit(1)
+		}
+
+		sessUseGrandChildHandleDecrypt, _, err := tpm2.StartAuthSession(
+			rwc,
+			tpm2.HandleNull,
+			tpm2.HandleNull,
+			make([]byte, sha256.Size),
+			nil,
+			tpm2.SessionPolicy,
+			tpm2.AlgNull,
+			tpm2.AlgSHA256)
+		if err != nil {
+			fmt.Printf("Error %s\n", err)
+			os.Exit(1)
+		}
+		defer tpm2.FlushContext(rwc, sessUseGrandChildHandleDecrypt)
+
+		if err := tpm2.PolicyPassword(rwc, sessUseGrandChildHandleDecrypt); err != nil {
+			log.Fatalf("unable to bind PCRs to session: %v", err)
+		}
+
+		if err := tpm2.PolicyPCR(rwc, sessUseGrandChildHandleDecrypt, expectedDigest[:] /*nil*/, pcrSelection); err != nil {
+			fmt.Printf("Error %s\n", err)
+			os.Exit(1)
+		}
+
+		decrypted, err := EncryptSymmetricWithSession(rwc, sessUseGrandChildHandleEncrypt, grandchildP, grandchildHandle, iv, encrypted)
+		if err != nil {
+			log.Fatalf("DecryptSymmetric failed: %s", err)
+		}
+
+		log.Printf("Decrypted %s", string(decrypted))
+		tpm2.FlushContext(rwc, sessUseGrandChildHandleDecrypt)
+		tpm2.FlushContext(rwc, grandchildHandle)
+
 	}
-	fmt.Printf("Starting Policy Digest %s\n", hex.EncodeToString(policyVal))
 
-	log.Printf("======= createPrimary ========")
-
-	pkh, _, err := tpm2.CreatePrimary(rwc, tpm2.HandleOwner, pcrSelection, emptyPassword, emptyPassword, client.SRKTemplateRSA())
-	if err != nil {
-		log.Fatalf("Error creating EK: %v", err)
-	}
-	defer tpm2.FlushContext(rwc, pkh)
-
-	log.Printf("======= CreateKey ========")
-
-	symKeyAESCBFParams := tpm2.Public{
-		Type:       tpm2.AlgSymCipher,
-		NameAlg:    tpm2.AlgSHA256,
-		AuthPolicy: policyVal,
-		Attributes: tpm2.FlagDecrypt | tpm2.FlagSign |
-			tpm2.FlagFixedParent | tpm2.FlagFixedTPM | tpm2.FlagSensitiveDataOrigin,
-		SymCipherParameters: &tpm2.SymCipherParams{
-			Symmetric: &tpm2.SymScheme{
-				Alg:     tpm2.AlgAES,
-				KeyBits: 128,
-				Mode:    tpm2.AlgCFB,
-			},
-		},
-	}
-
-	symPriv, symPub, _, _, _, err := tpm2.CreateKey(rwc, pkh, pcrSelection, emptyPassword, emptyPassword, symKeyAESCBFParams)
-	if err != nil {
-		log.Fatalf("Create SymKey failed: %s", err)
-	}
-	tpm2.FlushContext(rwc, sessCreateHandle)
-
-	symkeyHandle, keyName, err := tpm2.Load(rwc, pkh, emptyPassword, symPub, symPriv)
-	defer tpm2.FlushContext(rwc, symkeyHandle)
-	if err != nil {
-		log.Fatalf("Load symkh failed: %s", err)
-	}
-	log.Printf("SYM keyName: %v,", hex.EncodeToString(keyName))
-	data := []byte(*secret)
-	iv := make([]byte, aes.BlockSize)
-	if _, err := rand.Read(iv); err != nil {
-		fmt.Fprintf(os.Stderr, "Error  reading iv rand %v\n", err)
-		os.Exit(1)
-	}
-
-	sessUseEncryptHandle, _, err := tpm2.StartAuthSession(
-		rwc,
-		tpm2.HandleNull,
-		tpm2.HandleNull,
-		make([]byte, sha256.Size),
-		nil,
-		tpm2.SessionPolicy,
-		tpm2.AlgNull,
-		tpm2.AlgSHA256)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to create StartAuthSession : %v", err)
-		os.Exit(1)
-	}
-	defer tpm2.FlushContext(rwc, sessUseEncryptHandle)
-
-	if err := tpm2.PolicyPCR(rwc, sessUseEncryptHandle, expectedDigest[:] /*nil*/, pcrSelection); err != nil {
-		log.Fatalf("unable to bind PCRs to session: %v", err)
-	}
-
-	encrypted, err := EncryptSymmetricWithSession(rwc, sessUseEncryptHandle, emptyPassword, symkeyHandle, iv, data)
-	if err != nil {
-		log.Fatalf("EncryptSymmetric failed: %s", err)
-	}
-	log.Printf("Encrypted %s", base64.StdEncoding.EncodeToString(encrypted))
-
-	sessUseDecryptHandle, _, err := tpm2.StartAuthSession(
-		rwc,
-		tpm2.HandleNull,
-		tpm2.HandleNull,
-		make([]byte, sha256.Size),
-		nil,
-		tpm2.SessionPolicy,
-		tpm2.AlgNull,
-		tpm2.AlgSHA256)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to create StartAuthSession : %v", err)
-		os.Exit(1)
-	}
-	defer tpm2.FlushContext(rwc, sessUseDecryptHandle)
-
-	if err := tpm2.PolicyPCR(rwc, sessUseDecryptHandle, expectedDigest[:] /*nil*/, pcrSelection); err != nil {
-		log.Fatalf("unable to bind PCRs to session: %v", err)
-	}
-
-	decrypted, err := DecryptSymmetricWithSession(rwc, sessUseDecryptHandle, emptyPassword, symkeyHandle, iv, encrypted)
-	if err != nil {
-		log.Fatalf("DecryptSymmetric failed: %s", err)
-	}
-
-	log.Printf("Decrypted %s", string(decrypted))
-
-	// now extend pcr32
-	pcrvalcur, err := tpm2.ReadPCR(rwc, *pcr, tpm2.AlgSHA256)
-	if err != nil {
-		log.Fatalf("Unable to ReadPCR: %v", err)
-	}
-	log.Printf("Current PCR(%d) %s", pcr, hex.EncodeToString(pcrvalcur))
-
-	pcrToExtend := tpmutil.Handle(*pcr)
-
-	err = tpm2.PCRExtend(rwc, pcrToExtend, tpm2.AlgSHA256, pcrvalcur, "")
-	if err != nil {
-		log.Fatalf("Unable to Extend PCR: %v", err)
-	}
-
-	// now try to decrypt, this should fail
-
-	// sessUseDecryptHandleExtend, _, err := tpm2.StartAuthSession(
-	// 	rwc,
-	// 	tpm2.HandleNull,
-	// 	tpm2.HandleNull,
-	// 	make([]byte, sha256.Size),
-	// 	nil,
-	// 	tpm2.SessionPolicy,
-	// 	tpm2.AlgNull,
-	// 	tpm2.AlgSHA256)
-	// if err != nil {
-	// 	fmt.Fprintf(os.Stderr, "Unable to create StartAuthSession : %v", err)
-	// 	os.Exit(1)
-	// }
-	// defer tpm2.FlushContext(rwc, sessUseDecryptHandleExtend)
-
-	// pcrval, err = tpm2.ReadPCRs(rwc, pcrSelection)
-	// if err != nil {
-	// 	fmt.Fprintf(os.Stderr, "Unable to ReadPCR: %v", err)
-	// 	os.Exit(1)
-	// }
-
-	// var expectedValExtended []byte
-
-	// for _, pcr := range pcrSelection.PCRs {
-	// 	fmt.Printf("PCR:value %d:%s\n", pcr, hex.EncodeToString(pcrval[pcr]))
-	// 	expectedValExtended = append(expectedValExtended, pcrval[pcr]...)
-	// }
-
-	// expectedDigestExtended := sha256.Sum256(expectedValExtended)
-
-	// if err := tpm2.PolicyPCR(rwc, sessUseDecryptHandleExtend, expectedDigestExtended[:] /*nil*/, pcrSelection); err != nil {
-	// 	log.Fatalf("unable to bind PCRs to session: %v", err)
-	// }
-
-	// decryptedExtend, err := DecryptSymmetricWithSession(rwc, sessUseDecryptHandleExtend, emptyPassword, symkeyHandle, iv, encrypted)
-	// if err != nil {
-	// 	log.Fatalf("DecryptSymmetric failed: %s", err)
-	// }
-
-	// log.Printf("Decrypted %s", string(decryptedExtend))
 }
 
 func DecryptSymmetricWithSession(rw io.ReadWriteCloser, sessionHandle tpmutil.Handle, keyAuth string, key tpmutil.Handle, iv, data []byte) ([]byte, error) {
@@ -474,4 +769,3 @@ func decodeResponse(code tpmutil.ResponseCode) error {
 	// Code in 0:5, Session in 8:10
 	return tpm2.SessionError{tpm2.RCFmt1(code & 0x3f), tpm2.RCIndex((code & 0x700) >> 8)}
 }
-
