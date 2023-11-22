@@ -137,7 +137,7 @@ func main() {
 		log.Fatalf("error creating iv %v\n", err)
 	}
 
-	flag.Parse()
+
 	log.Println("======= Init  ========")
 
 	rwc, err := tpm2.OpenTPM(*tpmPath)
@@ -357,49 +357,21 @@ func main() {
 			os.Exit(1)
 		}
 
+		encrypted = append(iv,encrypted...)
+
 		log.Printf("Encrypted %s", base64.StdEncoding.EncodeToString(encrypted))
 
 		tpm2.FlushContext(rwc, sessUseGrandChildHandleEncrypt)
 
 		err = os.WriteFile(encryptedData, encrypted, 0644)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "grandchildpriv failed for childFile%v\n", err)
+			fmt.Fprintf(os.Stderr, "writing encrypted data failed%v\n", err)
 			os.Exit(1)
 		}
 
-		sessUseGrandChildHandleDecrypt, _, err := tpm2.StartAuthSession(
-			rwc,
-			tpm2.HandleNull,
-			tpm2.HandleNull,
-			make([]byte, sha256.Size),
-			nil,
-			tpm2.SessionPolicy,
-			tpm2.AlgNull,
-			tpm2.AlgSHA256)
-		if err != nil {
-			fmt.Printf("Error %s\n", err)
-			os.Exit(1)
-		}
-		defer tpm2.FlushContext(rwc, sessUseGrandChildHandleDecrypt)
 
-		if err := tpm2.PolicyPassword(rwc, sessUseGrandChildHandleDecrypt); err != nil {
-			log.Fatalf("unable to bind PCRs to session: %v", err)
-		}
 
-		if err := tpm2.PolicyPCR(rwc, sessUseGrandChildHandleDecrypt, expectedDigest[:] /*nil*/, pcrSelection); err != nil {
-			fmt.Printf("Error %s\n", err)
-			os.Exit(1)
-		}
-
-		decrypted, err := EncryptSymmetricWithSession(rwc, sessUseGrandChildHandleEncrypt, grandchildP, grandchildHandle, iv, encrypted)
-		if err != nil {
-			log.Fatalf("DecryptSymmetric failed: %s", err)
-		}
-
-		log.Printf("Decrypted %s", string(decrypted))
-		tpm2.FlushContext(rwc, sessUseGrandChildHandleDecrypt)
 		tpm2.FlushContext(rwc, grandchildHandle)
-
 	}
 
 	if *mode == "load" {
@@ -432,7 +404,7 @@ func main() {
 		}
 		// defer tpm2.FlushContext(rwc, pkh)
 
-		fmt.Printf("======= Create Child ========\n")
+		fmt.Printf("======= Load Child ========\n")
 
 		sessCreateChildHandle, _, err := tpm2.StartAuthSession(
 			rwc,
@@ -469,18 +441,7 @@ func main() {
 		tpm2.FlushContext(rwc, sessCreateChildHandle)
 		tpm2.FlushContext(rwc, pkh)
 
-		err = os.WriteFile(cPub, childpub, 0644)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "childPub failed for childFile%v\n", err)
-			os.Exit(1)
-		}
-		err = os.WriteFile(cPriv, childpriv, 0644)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "childriv failed for childFile%v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Printf("======= Create GrandChild ========\n")
+		fmt.Printf("======= Load GrandChild ========\n")
 
 		sessCreateGrandChildHandle, _, err := tpm2.StartAuthSession(
 			rwc,
@@ -521,57 +482,9 @@ func main() {
 		tpm2.FlushContext(rwc, childHandle)
 		tpm2.FlushContext(rwc, sessCreateGrandChildHandle)
 
-		err = os.WriteFile(gPub, grandchildpub, 0644)
+		encrypted, err := os.ReadFile(encryptedData)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "grandchildpub failed for childFile%v\n", err)
-			os.Exit(1)
-		}
-		err = os.WriteFile(gPriv, grandchildpriv, 0644)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "grandchildpriv failed for childFile%v\n", err)
-			os.Exit(1)
-		}
-
-		// fmt.Printf("======= Encrypt with GrandChild ========\n")
-
-		sessUseGrandChildHandleEncrypt, _, err := tpm2.StartAuthSession(
-			rwc,
-			tpm2.HandleNull,
-			tpm2.HandleNull,
-			make([]byte, sha256.Size),
-			nil,
-			tpm2.SessionPolicy,
-			tpm2.AlgNull,
-			tpm2.AlgSHA256)
-		if err != nil {
-			fmt.Printf("Error %s\n", err)
-			os.Exit(1)
-		}
-		defer tpm2.FlushContext(rwc, sessUseGrandChildHandleEncrypt)
-
-		if err := tpm2.PolicyPassword(rwc, sessUseGrandChildHandleEncrypt); err != nil {
-			log.Fatalf("unable to bind PCRs to session: %v", err)
-		}
-
-		if err := tpm2.PolicyPCR(rwc, sessUseGrandChildHandleEncrypt, expectedDigest[:] /*nil*/, pcrSelection); err != nil {
-			fmt.Printf("Error %s\n", err)
-			os.Exit(1)
-		}
-
-		encrypted, err := EncryptSymmetricWithSession(rwc, sessUseGrandChildHandleEncrypt, grandchildP, grandchildHandle, iv, data)
-		if err != nil {
-			fmt.Printf("Error %s\n", err)
-			os.Exit(1)
-		}
-
-		log.Printf("Encrypted %s", base64.StdEncoding.EncodeToString(encrypted))
-
-		tpm2.FlushContext(rwc, sessUseGrandChildHandleEncrypt)
-
-		err = os.WriteFile(encryptedData, encrypted, 0644)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "grandchildpriv failed for childFile%v\n", err)
-			os.Exit(1)
+			log.Fatalf("unable to read file: %v", err)
 		}
 
 		sessUseGrandChildHandleDecrypt, _, err := tpm2.StartAuthSession(
@@ -598,7 +511,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		decrypted, err := EncryptSymmetricWithSession(rwc, sessUseGrandChildHandleEncrypt, grandchildP, grandchildHandle, iv, encrypted)
+		decrypted, err := DecryptSymmetricWithSession(rwc, sessUseGrandChildHandleDecrypt, grandchildP, grandchildHandle,encrypted[:aes.BlockSize], encrypted[aes.BlockSize:])
 		if err != nil {
 			log.Fatalf("DecryptSymmetric failed: %s", err)
 		}
@@ -769,3 +682,4 @@ func decodeResponse(code tpmutil.ResponseCode) error {
 	// Code in 0:5, Session in 8:10
 	return tpm2.SessionError{tpm2.RCFmt1(code & 0x3f), tpm2.RCIndex((code & 0x700) >> 8)}
 }
+
