@@ -40,6 +40,8 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 
 - `sign_wth_rsa`: Generate RSA key with TPM  and sign (`tpm2_create`,`tpm2_load`, `tpm2_sign`, `tpm2_verifysignature`)
 
+- `sign_wth_ecc`: Generate ECC key with TPM  and sign, verify
+
 - `tpm_import_external_rsa`: Import external RSA key to TPM; decrypt data with TPM (`tpm2_import, tpm2_load, tpm2_rsadecrypt`)
 
 - `tpm_make_activate`: Attestation Protocol using Make-Activate credentials (`tpm2_makecredential`, `tpm2_activatecredential`)
