@@ -55,7 +55,38 @@ tpm2_encryptdecrypt -Q --iv iv.bin  -c aes.ctx -d -o plain.out -p"session:sessio
 tpm2_flushcontext session.dat
 ```
 
+### sign with session
 
+```bash
+tpm2_evictcontrol -C o -c 0x81008001
+
+tpm2_pcrread sha256:23
+
+tpm2_startauthsession -S session.dat
+tpm2_policypcr -S session.dat -l sha256:23  -L policy.dat
+tpm2_policypassword -S session.dat -L policy.dat
+tpm2_flushcontext session.dat
+
+
+tpm2_createprimary -C o -c primary.ctx
+tpm2_create -G rsa2048:rsassa:null -g sha256 -u rsa.pub -r rsa.priv -C primary.ctx  -L policy.dat -p testpswd
+tpm2_load -C primary.ctx -u rsa.pub -r rsa.priv -c rsa.ctx
+tpm2_evictcontrol -C o -c rsa.ctx 0x81008001
+
+
+tpm2_startauthsession --policy-session -S session.dat
+tpm2_policypcr -S session.dat -l sha256:23  -L policy.dat
+tpm2_policypassword -S session.dat -L policy.dat
+tpm2_load -C primary.ctx -u rsa.pub -r rsa.priv -c rsa.ctx
+
+echo "my message" > message.dat
+tpm2_sign -c rsa.ctx -g sha256 -o sig.ecc message.dat  -p"session:session.dat+testpswd"
+tpm2_verifysignature -c rsa.ctx -g sha256 -s sig.ecc -m message.dat
+
+tpm2_flushcontext session.dat
+
+tpm2_dictionarylockout --setup-parameters --max-tries=4294967295 --clear-lockout
+```
 ## PCR
 
 ```bash
