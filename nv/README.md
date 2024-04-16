@@ -49,7 +49,24 @@ tpm2_unseal -c key.ctx -p session:session.ctx
 tpm2_flushcontext session.ctx
 ```
 
-3) Read EKCert RSA from NV
+3) NV with PCR policy 
+
+```bash
+tpm2_pcrread -o measured.pcrvalues sha256:23
+  sha256:
+    23: 0xF5A5FD42D16A20302798EF6ED309979B43003D2320D9F0E8EA9831A92759FB4B
+
+tpm2_createpolicy --policy-pcr -l sha256:23 -f measured.pcrvalues -L measured.policy
+
+tpm2_nvdefine 0x1500016 -C o -s 32 -L measured.policy -a "policyread|policywrite"
+
+echo -n "fooo secret" > secret.txt
+
+tpm2_nvwrite 0x1500016 -C 0x1500016 -P pcr:sha256:23=measured.pcrvalues -i secret.txt
+tpm2_nvread 0x1500016 -C 0x1500016 -P pcr:sha256:23=measured.pcrvalues
+```
+
+4) Read EKCert RSA from NV
 
 from pg 13 of [TCG EK Credential Profile](https://trustedcomputinggroup.org/wp-content/uploads/TCG_IWG_EKCredentialProfile_v2p4_r3.pdf)
 
@@ -77,7 +94,7 @@ tpm2_nvread -s 1422  -C o $TPM2_EK_NV_INDEX |  openssl x509 --inform DER -text -
 
 
 
-4) Load AK Key from NV index
+5) Load AK Key from NV index
 
 ```golang
 	// NV Indices holding GCE AK Templates
