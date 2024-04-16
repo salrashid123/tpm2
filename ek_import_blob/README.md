@@ -126,6 +126,14 @@ AwIDAQAB
 -----END PUBLIC KEY-----
 ```
 
+to read the ekpublc key:
+
+```bash
+$ tpm2_createek -c primary.ctx -G rsa -u ek.pub -Q
+
+$ tpm2_readpublic -c primary.ctx -o ek.pem -f PEM -Q
+```
+
 Copy the cert or public key to local laptop as `ekpub.pem`
 
 ### 2. ON Local
