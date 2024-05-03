@@ -54,6 +54,8 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 
 - `tpm2_duplicate`: Use (`tpm2_import`, `tpm2_duplicate`) encrypt and transfer a key from one TPM to another.
 
+- `tpm2_duplicate_go`: Duplicate HMAC key from one tpm to another using go-tpm's direct API.  Also calculate HMAC in go using the TPM
+
 - `hmac_import`: Import an external hmac key and use it to do hmac-stuff
 
 - `tpm_services`: samples in go for  standalone remote attestation, quote-verify and seal-unseal
