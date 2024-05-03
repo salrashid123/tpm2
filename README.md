@@ -12,7 +12,14 @@ Also shown equivalent use of `go-tpm` library set.
 - [go-tpm-tools](https://github.com/google/go-tpm-tools)
 - [go-attestation](https://github.com/google/go-attestation)
 
+---
 
+- [Trusted Platform Module Library Part 1: Architecture](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-1-Architecture-01.38.pdf)
+- [Trusted Platform Module Library Part 2: Structures](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf)
+- [Trusted Platform Module Library Part 3: Commands](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-3-Commands-01.38.pdf)
+- [Trusted Platform Module Library Part 4: Supporting Routines](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-4-Supporting-Routines-01.38-code.pdf)
+
+---
 
 Update 8/28/21:  Added a gRPC client/server that does full remote attestation, quote/verify and secret sharing:
 
