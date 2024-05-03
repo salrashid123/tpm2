@@ -13,6 +13,8 @@ Also shown equivalent use of `go-tpm` library set.
 - [go-attestation](https://github.com/google/go-attestation)
 
 ---
+- [tpm-js simulator](https://google.github.io/tpm-js/)
+
 
 - [Trusted Platform Module Library Part 1: Architecture](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-1-Architecture-01.38.pdf)
 - [Trusted Platform Module Library Part 2: Structures](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf)
