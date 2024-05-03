@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
@@ -70,33 +71,22 @@ var (
 		Type:    tpm2.TPMAlgRSA,
 		NameAlg: tpm2.TPMAlgSHA256,
 		ObjectAttributes: tpm2.TPMAObject{
-			FixedTPM:             false,
+			FixedTPM:             true,
 			STClear:              false,
-			FixedParent:          false,
+			FixedParent:          true,
 			SensitiveDataOrigin:  true,
 			UserWithAuth:         true,
 			AdminWithPolicy:      false,
 			NoDA:                 true,
 			EncryptedDuplication: false,
-			Restricted:           true,
+			Restricted:           false,
 			Decrypt:              true,
-			SignEncrypt:          false,
+			SignEncrypt:          true,
 		},
 		AuthPolicy: tpm2.TPM2BDigest{},
 		Parameters: tpm2.NewTPMUPublicParms(
 			tpm2.TPMAlgRSA,
 			&tpm2.TPMSRSAParms{
-				Symmetric: tpm2.TPMTSymDefObject{
-					Algorithm: tpm2.TPMAlgAES,
-					KeyBits: tpm2.NewTPMUSymKeyBits(
-						tpm2.TPMAlgAES,
-						tpm2.TPMKeyBits(128),
-					),
-					Mode: tpm2.NewTPMUSymMode(
-						tpm2.TPMAlgAES,
-						tpm2.TPMAlgCFB,
-					),
-				},
 				KeyBits: 2048,
 			},
 		),
@@ -252,4 +242,50 @@ func main() {
 	// if err != nil {
 	// 	log.Fatalf("can't childPub failed for write%v\n", err)
 	// }
+
+	message := []byte("secret")
+
+	encryptCmd := tpm2.RSAEncrypt{
+		KeyHandle: loadRsp.ObjectHandle,
+		Message:   tpm2.TPM2BPublicKeyRSA{Buffer: message},
+		InScheme: tpm2.TPMTRSADecrypt{
+			Scheme: tpm2.TPMAlgOAEP,
+			Details: tpm2.NewTPMUAsymScheme(
+				tpm2.TPMAlgOAEP,
+				&tpm2.TPMSEncSchemeOAEP{
+					HashAlg: tpm2.TPMAlgSHA256,
+				},
+			),
+		},
+	}
+	encryptRsp, err := encryptCmd.Execute(rwr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "encrypt  failed for %v\n", err)
+		os.Exit(1)
+	}
+
+	decryptCmd := tpm2.RSADecrypt{
+		KeyHandle:  loadRsp.ObjectHandle,
+		CipherText: tpm2.TPM2BPublicKeyRSA{Buffer: encryptRsp.OutData.Buffer},
+		InScheme: tpm2.TPMTRSADecrypt{
+			Scheme: tpm2.TPMAlgOAEP,
+			Details: tpm2.NewTPMUAsymScheme(
+				tpm2.TPMAlgOAEP,
+				&tpm2.TPMSEncSchemeOAEP{
+					HashAlg: tpm2.TPMAlgSHA256,
+				},
+			),
+		},
+	}
+	decryptRsp, err := decryptCmd.Execute(rwr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "decrypt  failed for %v\n", err)
+		os.Exit(1)
+	}
+
+	if !bytes.Equal(message, decryptRsp.Message.Buffer) {
+
+		fmt.Fprintf(os.Stderr, "want %x got %x", message, decryptRsp.Message.Buffer)
+		os.Exit(1)
+	}
 }
