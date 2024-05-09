@@ -1,190 +1,308 @@
 ## TPM2_DUPLICATE
 
+see 
 
-See: [Duplicating-Objects](https://github.com/tpm2-software/tpm2-tools/wiki/Duplicating-Objects)
+- [Prevent Chained duplication from A -> B -> C using tpm2_policyduplicationselect](https://gist.github.com/salrashid123/8cf62917392c3a05b4a750ce3cfe4c6a)
 
+## Prevent Chained duplication from A -> B -> C using tpm2_policyduplicationselect
 
-# Duplicating Objects
+This procedure will transfer an HMAC key created inside TPM-A to TPM-B  but prevent TPM-B to transfer it to TPM-C.
 
-Sample procedure to transfer an RSA key from one TPM to another. The RSA key
-never leaves the protection of the two TPMs at anytime and cannot be decoded or
-used on any other system even if it intercepted in transit.
+Basically, and extension of As an end-to-end example, the following will transfer an RSA key generated on TPM-A to TPM-B but 
+using `tpm2_policyduplicationselect` tp prevent further duplication
 
+Step 1 below will transfer a key from A->B, step 2 attempts B->C but is prevented duplication on B by policy
 
-This procedure will transfer an RSA key from `TPM-A` to `TPM-B`.  The key can be
-generated via `openssl` and imported into `TPM-A` or generated directly on
-`TPM-A`.
+- also see [Chained duplication from A -> B -> C tpm2_policycommandcode](https://gist.github.com/salrashid123/13166ff8d579d55436a128087d5b43c7)
 
-`TPM-B` will provide `TPM-A` the public portion of a keypair it owns that allows
-a sealed transfer.  This tutorial uses the following two APIs
+---
 
-* [tpm2_duplicate](https://github.com/tpm2-software/tpm2-tools/blob/master/man/tpm2_duplicate.1.md)
-* [tpm2_import](https://github.com/tpm2-software/tpm2-tools/blob/master/man/tpm2_import.1.md)
+### 1. Transfer A->B
 
-
-## On TPM-B
-
-Create a parent object that will be used to wrap/transfer the PEM file
-```
-tpm2_createprimary -C o -g sha256 -G rsa -c primary.ctx
-
-tpm2_create  -C primary.ctx -g sha256 -G rsa \
--r new_parent.prv  -u new_parent.pub \
--a "restricted|sensitivedataorigin|decrypt|userwithauth"
-
-```
-
-Copy `new_parent.pub` to `TPM-A`.  The copy steps assumes attestation was done
-previously and that `TPM-A` trusts the `new_parent.pub` issued by `TPM-B`
+#### B
 
 ```bash
-# copy new_parent.pub from B to A
-scp new_parent.pub  alice@tpm-A:
-```
-
-## On TPM-A
-
-
-Create root object and auth policy allows duplication only
-
-```
+## on B, first create a parent object
 tpm2_createprimary -C o -g sha256 -G rsa -c primary.ctx
+tpm2_create  -C primary.ctx -g sha256 -G rsa -r new_parent.prv \
+    -u new_parent.pub -a "fixedtpm|fixedparent|restricted|sensitivedataorigin|decrypt|userwithauth"
+```
 
+_copy **new_parent.pub** to A_
+
+#### A
+
+```bash
+## read the paren public part, load it and export its "name"
+tpm2_print -t TPM2B_PUBLIC  new_parent.pub
+tpm2_loadexternal -C o -u new_parent.pub -c new_parent.ctx -n dst_n.name
+
+## create a primary object and a policy that that restricts duplicatoin to just `dst_n.name`
+tpm2_createprimary -C o -g sha256 -G rsa -c primary.ctx
 tpm2_startauthsession -S session.dat
-
-tpm2_policycommandcode -S session.dat -L dpolicy.dat TPM2_CC_Duplicate
-
+tpm2_policyduplicationselect -S session.dat  -N dst_n.name -L dpolicy.dat 
 tpm2_flushcontext session.dat
-
 rm session.dat
-```
 
-Generate an RSA keypair on TPM to transfer  (note the passphrase is 'foo')
-
-```
-tpm2_create -C primary.ctx -g sha256 -G rsa -p foo -r key.prv \
--u key.pub  -L dpolicy.dat -a "sensitivedataorigin|userwithauth|decrypt|sign"
-  
-    [ FOR AES key use -G aes:
-       tpm2_create -C primary.ctx -g sha256 -G aes -p foo -r key.prv -u key.pub  -L dpolicy.dat -a "sensitivedataorigin|userwithauth|decrypt|sign" ]
-
+## create an hmac key with that policy
+tpm2_create -C primary.ctx -g sha256 -G hmac -r key.prv -u key.pub  -L dpolicy.dat -a "sensitivedataorigin|userwithauth|sign"
 tpm2_load -C primary.ctx -r key.prv -u key.pub -c key.ctx
 
+## create a test hmac 
+export plain="foo"
+echo -n $plain | tpm2_hmac -g sha256 -c key.ctx | xxd -p -c 256
+   42a1fad918fa0e4cbea94d759da89ccdfac5a640672d0170f4930cafe14d179c
+
+### print the key  context and export the public part
 tpm2_readpublic -c key.ctx -o dup.pub
-````
 
-Test sign and encryption locally (so we can compare later that the same key was transferred).
-
-```
-echo "meet me at.." >file.txt
-tpm2_rsaencrypt -c key.ctx  -o data.encrypted file.txt
-tpm2_sign -c key.ctx -g sha256 -f plain -p foo -o sign.raw file.txt
-
-   [ for AES key, use
-     tpm2_encryptdecrypt -Q -c key.ctx -p foo -o encrypt.out secret.dat ]
-```
-
-Compare the signature hash (we will use this later to confirm the key was transferred to TPM-B):
-
-```
-sha256sum sign.raw
-
-a1b4e3fbaa29e6e46d95cff498150b6b8e7d9fd21182622e8f5a3ddde257879e
-```
-
-Start an auth session and policy command to allow duplication
-```
+## now start an auth session 
+## bind the duplicate to the destination "name"
 tpm2_startauthsession --policy-session -S session.dat
+tpm2_readpublic -c key.ctx -n dupkey.name
+tpm2_policyduplicationselect -S session.dat  -N dst_n.name -L dpolicy.dat  -n dupkey.name
 
-tpm2_policycommandcode -S session.dat -L dpolicy.dat TPM2_CC_Duplicate
-```
-
-Load the new_parent.pub file transferred from `TPM-B`
-```
-tpm2_loadexternal -C o -u new_parent.pub -c new_parent.ctx
+## now duplicate 
+tpm2_duplicate -C new_parent.ctx -c key.ctx -G null  -p "session:session.dat" -r dup.dup -s dup.seed
 ```
 
-Start the duplication
-```
-tpm2_duplicate -C new_parent.ctx -c key.ctx -G null  \
--p "session:session.dat" -r dup.dup -s dup.seed
-```
+_copy **dup.dup dup.seed dup.pub** to B_
 
-Copy the following files to TPM-B:
-* dup.pub
-* dup.dup
-* dup.seed
-* (optionally data.encrypted just to test decryption)
+#### B
 
 ```bash
-scp dup.pub  bob@tpm-b:
-scp dup.dup  bob@tpm-b:
-scp dup.seed  bob@tpm-b:
-```
-## On TPM-B
-
-Start an auth,policy session
-```
-tpm2_startauthsession --policy-session -S session.dat
-
-tpm2_policycommandcode -S session.dat -L dpolicy.dat TPM2_CC_Duplicate
-```
-
-Load the context we used to transfer
-```
+## reload the parent used for the transfer
 tpm2_flushcontext --transient-object
-
 tpm2_load -C primary.ctx -u new_parent.pub -r new_parent.prv -c new_parent.ctx
-```
 
-Import the duplicated context against the parent we used
-
-```
-tpm2_import -C new_parent.ctx -u dup.pub -i dup.dup \
-   -r dup.prv -s dup.seed -L dpolicy.dat
-```
-
-Load the duplicated key context 
-```
-tpm2_flushcontext --transient-object
-
+## just import the duplicated key
+tpm2_import -C new_parent.ctx -u dup.pub -i dup.dup  -r dup.prv -s dup.seed
 tpm2_load -C new_parent.ctx -u dup.pub -r dup.prv -c dup.ctx
-```
 
-Test the imported key matches
+## test hmac 
+## this will be the same as on A
+export plain="foo"
+echo -n $plain | tpm2_hmac -g sha256 -c dup.ctx | xxd -p -c 256
+   42a1fad918fa0e4cbea94d759da89ccdfac5a640672d0170f4930cafe14d179c
 
-* Sign
-
-```bash
-echo "meet me at.." >file.txt
-
-tpm2_sign -c dup.ctx -g sha256 -o sig.rss -p foo file.txt
-
-dd if=sig.rss of=sign.raw bs=1 skip=6 count=256
-```
-
-Compare the signature file hash:
-
-```bash
-$ sha256sum sign.raw
-
-a1b4e3fbaa29e6e46d95cff498150b6b8e7d9fd21182622e8f5a3ddde257879e
-```
-
-* Decryption
-
-```
-tpm2_flushcontext --transient-object
-
-tpm2_rsadecrypt -p foo -c dup.ctx -o data.ptext data.encrypted
-
-# cat data.ptext 
-meet me at..
+tpm2_print -t TPM2B_PUBLIC  dup.pub 
 ```
 
 ---
 
-from [gcp_tpm_sealed_keys#transfer-rsa-key-with-password-policy-from-a-b](https://github.com/salrashid123/gcp_tpm_sealed_keys#transfer-rsa-key-with-password-policy-from-a-b)
+### Transfer B-->C
+
+Now try to tranfer the same key from B to C
+
+#### C
+
+```bash
+## create a parent on C used for the transfer
+tpm2_createprimary -C o -g sha256 -G rsa -c primary_2.ctx
+tpm2_create  -C primary_2.ctx -g sha256 -G rsa -r new_parent_2.prv \
+   -u new_parent_2.pub -a "fixedtpm|fixedparent|restricted|sensitivedataorigin|decrypt|userwithauth"
+```
+
+_ copy **new_parent_2.pub** to B_
+
+#### B
+
+```bash
+## just as a sanity check load the **original** hmac key and check it
+## remember this key was transfered from A->B using new_parent (new_parent_2 is from B->C)
+tpm2_load -C new_parent.ctx -u dup.pub -r dup.prv -c dup.ctx
+
+export plain="foo"
+echo -n $plain | tpm2_hmac -g sha256 -c dup.ctx | xxd -p -c 256
+
+
+## load load new_parent_2 (which is the key from C)
+tpm2_loadexternal -C o -u new_parent_2.pub -c new_parent_2.ctx -n dst_n.name
+tpm2_startauthsession --policy-session -S session_2.dat
+tpm2_readpublic -c dup.ctx -n dupkey.name
+
+## set the policy duplicate against the "name" from C
+tpm2_policyduplicationselect -S session_2.dat  -N dst_n.name -L dpolicy_2.dat  -n dupkey.name
+
+## duplication will fail by policy 
+### since the key is restricted to a parent
+tpm2_duplicate -C new_parent_2.ctx -c dup.ctx -G null  -p "session:session_2.dat" -r dup_2.dup -s dup_2.seed
+
+
+      WARNING:esys:src/tss2-esys/api/Esys_Duplicate.c:354:Esys_Duplicate_Finish() Received TPM Error 
+      ERROR:esys:src/tss2-esys/api/Esys_Duplicate.c:116:Esys_Duplicate() Esys Finish ErrorCode (0x0000099d) 
+      ERROR: Esys_Duplicate(0x99D) - tpm:session(1):a policy check failed
+      ERROR: Unable to run tpm2_duplicate
+```
+
+
+---
+
+- [Chained duplication from A -> B -> C tpm2_policycommandcode](https://gist.github.com/salrashid123/13166ff8d579d55436a128087d5b43c7)
+
+## Chained duplication from  A -> B -> C  tpm2_policycommandcode 
+
+This procedure will transfer an HMAC key created inside `TPM-A` to `TPM-B` and then to `TPM-C` using `tpm2_policycommandcode` 
+
+Basically, and extension of  [As an end-to-end example, the following will transfer an RSA key generated on TPM-A to TPM-B](
+https://github.com/tpm2-software/tpm2-tools/blob/master/man/tpm2_duplicate.1.md#example-2-as-an-end-to-end-example-the-following-will-transfer-an-rsa-key-generated-on-tpm-a-to-tpm-b)
+
+
+To use this, you'll need three VMs.
+
+Step 1 below will transfer a key from `A->B`, step 2 is `B->C`
+
+
+### 1. Transfer A-->B
+
+##### B
+
+On VM-B, create parent object used for duplication
+
+```bash
+tpm2_createprimary -C o -g sha256 -G rsa -c primary.ctx
+tpm2_create  -C primary.ctx -g sha256 -G rsa -r new_parent.prv \
+   -u new_parent.pub -a "fixedtpm|fixedparent|restricted|sensitivedataorigin|decrypt|userwithauth"
+```
+
+_copy **new_parent.pub** to A_
+
+#### A
+
+```bash
+## just print the public part 
+tpm2_print -t TPM2B_PUBLIC  new_parent.pub
+
+## create a tpm2_policycommandcode with TPM2_CC_Duplicate 
+tpm2_createprimary -C o -g sha256 -G rsa -c primary.ctx
+tpm2_startauthsession -S session.dat
+tpm2_policycommandcode -S session.dat -L dpolicy.dat TPM2_CC_Duplicate
+tpm2_flushcontext session.dat
+rm session.dat
+
+## create the hmac key on the tpm with the policy
+tpm2_create -C primary.ctx -g sha256 -G hmac -r key.prv -u key.pub \
+   -L dpolicy.dat -a "sensitivedataorigin|userwithauth|sign"
+
+## load and print the hmac key details
+tpm2_load -C primary.ctx -r key.prv -u key.pub -c key.ctx
+tpm2_readpublic -c key.ctx -n dupkey.name
+
+## now hmac some data 
+## (the output for you will be different)
+export plain="foo"
+echo -n $plain | tpm2_hmac -g sha256 -c key.ctx | xxd -p -c 256
+   5bc1d93ea8b7a180877eeb754bf5f3bd84e94aa397b8ab5284dbd5dc823ff7c7
+
+## now begin the duplication using the new_parent and the same policy
+tpm2_readpublic -c key.ctx -o dup.pub
+tpm2_startauthsession --policy-session -S session.dat
+tpm2_policycommandcode -S session.dat -L dpolicy.dat TPM2_CC_Duplicate
+tpm2_loadexternal -C o -u new_parent.pub -c new_parent.ctx -n dst_n.name
+tpm2_duplicate -C new_parent.ctx -c key.ctx -G null  -p "session:session.dat" -r dup.dup -s dup.seed
+```
+
+_copy **dup.dup dup.seed dup.pub** to B_
+
+
+#### B
+
+```bash
+## load the parent key used for duplication
+tpm2_flushcontext --transient-object
+tpm2_load -C primary.ctx -u new_parent.pub -r new_parent.prv -c new_parent.ctx
+
+## set the duplicate policy
+tpm2_startauthsession --policy-session -S session.dat
+tpm2_policycommandcode -S session.dat -L dpolicy.dat TPM2_CC_Duplicate
+
+## import and load the duplicated key
+tpm2_import -C new_parent.ctx -u dup.pub -i dup.dup  -r dup.prv -s dup.seed -L dpolicy.dat
+tpm2_flushcontext --transient-object
+tpm2_load -C new_parent.ctx -u dup.pub -r dup.prv -c dup.ctx
+
+## now run the hmac 
+## (you'll see the same output as on A)
+export plain="foo"
+echo -n $plain | tpm2_hmac -g sha256 -c dup.ctx | xxd -p -c 256
+   5bc1d93ea8b7a180877eeb754bf5f3bd84e94aa397b8ab5284dbd5dc823ff7c7
+```
+
+---
+
+### Transfer B-->C
+
+Repeate the same prodedure between B and C using the key loaded in the previous step
+
+#### C
+
+```bash
+## create a parent for the transfer
+tpm2_createprimary -C o -g sha256 -G rsa -c primary_2.ctx
+tpm2_create  -C primary_2.ctx -g sha256 -G rsa -r new_parent_2.prv \
+   -u new_parent_2.pub -a "fixedtpm|fixedparent|restricted|sensitivedataorigin|decrypt|userwithauth"
+```
+
+_ copy **new_parent_2.pub** to B_
+
+#### B
+
+```bash
+## just to test, load the _original_ key sent a->b and run an hmac again
+## this step isn't necessary but helps as a sanity check
+tpm2_load -C new_parent.ctx -u dup.pub -r dup.prv -c dup.ctx
+export plain="foo"
+echo -n $plain | tpm2_hmac -g sha256 -c dup.ctx | xxd -p -c 256
+
+## print the public part of the parent from C
+tpm2_print -t TPM2B_PUBLIC  new_parent_2.pub 
+
+## start a duplicate session
+tpm2_startauthsession -S session_2.dat --policy-session
+tpm2_policycommandcode -S session_2.dat -L dpolicy_2.dat TPM2_CC_Duplicate
+tpm2_flushcontext session_2.dat
+rm session_2.dat
+
+## again load the key sent from A
+tpm2_load -C new_parent.ctx -u dup.pub -r dup.prv -c dup.ctx
+
+## fulfill the policy for duplication
+## load the parent from C
+tpm2_startauthsession --policy-session -S session.dat
+tpm2_policycommandcode -S session.dat -L dpolicy.dat TPM2_CC_Duplicate
+tpm2_loadexternal -C o -u new_parent_2.pub -c new_parent_2.ctx
+
+## duplicate 
+tpm2_duplicate -C new_parent_2.ctx -c dup.ctx -G null \
+    -p "session:session.dat" -r dup_2.dup -s dup_2.seed
+cp dup.pub dup_2.pub
+```
+
+_copy **dup_2.dup dup_2.seed dup_2.pub** to C_
+
+#### C
+
+```bash
+## load the original parent from C
+tpm2_flushcontext --transient-object
+tpm2_load -C primary_2.ctx -u new_parent_2.pub -r new_parent_2.prv -c new_parent_2.ctx
+
+## start the policy
+tpm2_startauthsession --policy-session -S session.dat
+tpm2_policycommandcode -S session.dat -L dpolicy.dat TPM2_CC_Duplicate
+
+## import the duplicated key
+tpm2_import -C new_parent_2.ctx -u dup_2.pub -i dup_2.dup  -r dup_2.prv -s dup_2.seed -L dpolicy.dat
+tpm2_flushcontext --transient-object
+tpm2_load -C new_parent_2.ctx -u dup_2.pub -r dup_2.prv -c dup_2.ctx
+
+## test with hmac
+## you'll see the same hmac output
+export plain="foo"
+echo -n $plain | tpm2_hmac -g sha256 -c dup_2.ctx | xxd -p -c 256
+  5bc1d93ea8b7a180877eeb754bf5f3bd84e94aa397b8ab5284dbd5dc823ff7c7
+```
+
 
 #### Transfer RSA key with password policy from A->B
 
