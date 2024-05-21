@@ -61,17 +61,7 @@ $ go run importExternalRSA.go --mode=create --keyPub key.pub --keyPriv=key.priv 
   2023/09/04 14:29:19 Signature data:  Sp810z...
 ```
 
-### verify the key files and handles are created 
-```bash
-$ tpm2_getcap handles-persistent
-   - 0x81010002
 
-$ ls
-key.pub
-key.priv
-```
-
-### Load
 
 ```bash
 $ go run importExternalRSA.go --mode=load --keyPub key.pub --keyPriv=key.priv

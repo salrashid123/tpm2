@@ -12,15 +12,16 @@ package main
 
     ## using tpm2_tools
 	tpm2_createprimary -C o -g sha256 -G rsa -c primary.ctx
-	tpm2_import -C primary.ctx -G rsa -i private.pem -u key.pub -r key.prv
+	tpm2_import -C primary.ctx -G rsa2048:rsassa:null -g sha256  -i private.pem -u key.pub -r key.prv
 	tpm2_load -C primary.ctx -u key.pub -r key.prv -c key.ctx
-	tpm2_evictcontrol -C o -c key.ctx 0x81010002
+	tpm2_evictcontrol -C o -c key.ctx 0x81010003
 
 */
 
 import (
 	"flag"
 	"fmt"
+	"os"
 
 	//"fmt"
 
@@ -29,7 +30,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
-	"io/ioutil"
 	"log"
 
 	"github.com/golang/glog"
@@ -81,11 +81,11 @@ func main() {
 
 	rwc, err := tpm2.OpenTPM(*tpmPath)
 	if err != nil {
-		log.Fatalf("    can't open TPM %q: %v", tpmPath, err)
+		log.Fatalf("    can't open TPM %s: %v", *tpmPath, err)
 	}
 	defer func() {
 		if err := rwc.Close(); err != nil {
-			log.Fatalf("     %v\ncan't close TPM %q: %v", tpmPath, err)
+			log.Fatalf("     can't close TPM %s: %v", *tpmPath, err)
 		}
 	}()
 
@@ -161,7 +161,7 @@ func main() {
 
 		var pv *rsa.PrivateKey
 
-		data, err := ioutil.ReadFile(*pemFile)
+		data, err := os.ReadFile(*pemFile)
 
 		if err != nil {
 			log.Fatalf("     Unable to read serviceAccountFile %v", err)
@@ -170,11 +170,11 @@ func main() {
 		if block == nil {
 			log.Fatalf("     Failed to decode PEM block containing the key %v", err)
 		}
-		pv, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+		pvp, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 		if err != nil {
 			log.Fatalf("     Failed to parse PEM block containing the key %v", err)
 		}
-
+		pv = pvp.(*rsa.PrivateKey)
 		rp := tpm2.Public{
 			Type:       tpm2.AlgRSA,
 			NameAlg:    tpm2.AlgSHA256,
@@ -183,6 +183,10 @@ func main() {
 				KeyBits:     2048,
 				ExponentRaw: uint32(pv.PublicKey.E),
 				ModulusRaw:  pv.PublicKey.N.Bytes(),
+				Sign: &tpm2.SigScheme{
+					Alg:  tpm2.AlgRSASSA,
+					Hash: tpm2.AlgSHA256,
+				},
 			},
 		}
 		rpriv := tpm2.Private{
@@ -200,6 +204,10 @@ func main() {
 			log.Fatalf("     DecodePublic returned error: %v", err)
 		}
 		importedPubName, err := decImported.Name()
+		if err != nil {
+			log.Fatalf("     Private reading name: %s", err)
+		}
+
 		log.Printf("     Imported Public digestValue: %v", hex.EncodeToString(importedPubName.Digest.Value))
 
 		privArea, err := rpriv.Encode()
@@ -228,13 +236,13 @@ func main() {
 
 		log.Printf("     SavePub (%s) ========", *keyPub)
 
-		err = ioutil.WriteFile(*keyPub, pubArea, 0644)
+		err = os.WriteFile(*keyPub, pubArea, 0644)
 		if err != nil {
 			log.Fatalf("     ContextSave failed for key.bin: %v", err)
 		}
 		log.Printf("     SavePriv (%s) ========", *keyPriv)
 
-		err = ioutil.WriteFile(*keyPriv, iprivate, 0644)
+		err = os.WriteFile(*keyPriv, iprivate, 0644)
 		if err != nil {
 			log.Fatalf("     ContextSave failed for key.bin: %v", err)
 		}
@@ -259,16 +267,14 @@ func main() {
 		tpm2.FlushContext(rwc, pH)
 	}
 
-	if *mode == "load" {
-	}
 	log.Printf("     LoadkeyPub (%s) ========", *keyPub)
-	pubArea, err := ioutil.ReadFile(*keyPub)
+	pubArea, err := os.ReadFile(*keyPub)
 	if err != nil {
 		log.Fatalf("     failed to load key public: %v", err)
 	}
 
 	log.Printf("     LoadkeyPriv (%s) ========", *keyPriv)
-	iprivate, err := ioutil.ReadFile(*keyPriv)
+	iprivate, err := os.ReadFile(*keyPriv)
 	if err != nil {
 		log.Fatalf("     failed to load key private: %v", err)
 	}
