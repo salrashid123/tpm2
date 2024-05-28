@@ -53,6 +53,12 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 
 - `encrypte_decrypt_aes`:  encrypt and decrypt with aes key on tpm
 
+- `keyfile-go-tpm-tools`: use go-tpm's direct api with `go-tpm-keyfiles` and `go-tpm-tools.client.Key` 
+
+- `simulator_swtpm_tcpdump`: run a software tpm locally use tcpdump to decode traffic with wireshark
+
+- `tpm_encrypted_session`: demonstrate session encryption to protect cpu->tpm bus interface
+
 - `encrypte_decrypt_aes_with_session`:  encrypt decrypt with aes with a pcr and password policy
 
 - `tpm_import_external_rsa`: Import external RSA key to TPM; decrypt data with TPM (`tpm2_import, tpm2_load, tpm2_rsadecrypt`)
