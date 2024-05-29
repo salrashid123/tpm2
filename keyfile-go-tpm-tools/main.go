@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"crypto"
-	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
@@ -35,6 +34,10 @@ func main() {
 
 	log.Println("======= Init  ========")
 
+	parentPass := []byte("foo")
+
+	keyPass := []byte("bar")
+
 	//rwc, err := tpmutil.OpenTPM(*tpmPath)
 	rwc, err := simulator.GetWithFixedSeedInsecure(1073741825)
 	if err != nil {
@@ -53,6 +56,13 @@ func main() {
 	primaryKey, err := tpm2.CreatePrimary{
 		PrimaryHandle: tpm2.TPMRHOwner,
 		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
+		InSensitive: tpm2.TPM2BSensitiveCreate{
+			Sensitive: &tpm2.TPMSSensitiveCreate{
+				UserAuth: tpm2.TPM2BAuth{
+					Buffer: parentPass,
+				},
+			},
+		},
 	}.Execute(rwr)
 	if err != nil {
 		log.Fatalf("can't create primary %v", err)
@@ -109,9 +119,16 @@ func main() {
 		ParentHandle: tpm2.AuthHandle{
 			Handle: primaryKey.ObjectHandle,
 			Name:   primaryKey.Name,
-			Auth:   tpm2.PasswordAuth([]byte("")),
+			Auth:   tpm2.PasswordAuth(parentPass),
 		},
 		InPublic: tpm2.New2BTemplate(&rsaTemplate),
+		InSensitive: tpm2.TPM2BSensitiveCreate{
+			Sensitive: &tpm2.TPMSSensitiveCreate{
+				UserAuth: tpm2.TPM2BAuth{
+					Buffer: keyPass,
+				},
+			},
+		},
 	}.Execute(rwr)
 	if err != nil {
 		log.Fatalf("can't create rsa %v", err)
@@ -163,13 +180,14 @@ func main() {
 	digest := sha256.Sum256(data)
 
 	// objAuth := &tpm2.TPM2BAuth{
-	// 	Buffer: rsaPassword,
+	// 	Buffer: keyPass,
 	// }
 
 	rspSign, err := tpm2.Sign{
-		KeyHandle: tpm2.NamedHandle{
+		KeyHandle: tpm2.AuthHandle{
 			Handle: rsaKeyResponse.ObjectHandle,
 			Name:   rsaKeyResponse.Name,
+			Auth:   tpm2.PasswordAuth(keyPass),
 		},
 
 		Digest: tpm2.TPM2BDigest{
@@ -192,12 +210,24 @@ func main() {
 		log.Fatalf("Failed to Sign: %v", err)
 	}
 
-	pubKey, err := tkf.PublicKey()
+	pub, err := rsaKeyResponse.OutPublic.Contents()
+	if err != nil {
+		log.Fatalf("Failed to get rsa public: %v", err)
+	}
+	rsaDetail, err := pub.Parameters.RSADetail()
+	if err != nil {
+		log.Fatalf("Failed to get rsa details: %v", err)
+	}
+	rsaUnique, err := pub.Unique.RSA()
+	if err != nil {
+		log.Fatalf("Failed to get rsa unique: %v", err)
+	}
+
+	rsaPub, err := tpm2.RSAPub(rsaDetail, rsaUnique)
 	if err != nil {
 		log.Fatalf("Failed to get rsa public key: %v", err)
 	}
 
-	rsaPub := pubKey.(*rsa.PublicKey)
 	rsassa, err := rspSign.Signature.Signature.RSASSA()
 	if err != nil {
 		log.Fatalf("Failed to get signature part: %v", err)
@@ -230,6 +260,13 @@ func main() {
 	regenPrimary, err := tpm2.CreatePrimary{
 		PrimaryHandle: tpm2.TPMRHOwner,
 		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
+		InSensitive: tpm2.TPM2BSensitiveCreate{
+			Sensitive: &tpm2.TPMSSensitiveCreate{
+				UserAuth: tpm2.TPM2BAuth{
+					Buffer: parentPass,
+				},
+			},
+		},
 	}.Execute(rwr)
 	if err != nil {
 		log.Fatalf("can't create primary TPM %q: %v", *tpmPath, err)
@@ -254,7 +291,7 @@ func main() {
 		ParentHandle: tpm2.AuthHandle{
 			Handle: regenPrimary.ObjectHandle,
 			Name:   tpm2.TPM2BName(regenPrimary.Name),
-			Auth:   tpm2.PasswordAuth([]byte("")),
+			Auth:   tpm2.PasswordAuth(parentPass),
 		},
 		InPublic:  key.Pubkey,
 		InPrivate: key.Privkey,
@@ -285,22 +322,97 @@ func main() {
 	log.Printf("======= constructing handle for go-tpm-tools.client.Key========")
 
 	// note, go-tpm-tools uses the legacy go-tpm library so its a bit awkward
-	pHandle := tpmutil.Handle(regenRSAKey.ObjectHandle.HandleValue())
 
+	// i we actually needed a password session but go-tpm-tools sets an empty password...
+	// https://github.com/google/go-tpm-tools/blob/main/client/signer.go#L127
+	// go-tpm-tools session also assumes the bus is trusted
+	// https://github.com/google/go-tpm-tools/blob/main/client/session.go#L16
+
+	pHandle := tpmutil.Handle(regenRSAKey.ObjectHandle.HandleValue())
 	k, err := client.LoadCachedKey(rwc, pHandle, nil)
 	if err != nil {
 		log.Fatalf("error loading rsa key%v\n", err)
 	}
 
-	r, err := k.GetSigner()
-	if err != nil {
-		log.Fatalf("Error getting singer %v\n", err)
-	}
+	// r, err := k.GetSigner()
+	// if err != nil {
+	// 	log.Fatalf("Error getting singer %v\n", err)
+	// }
 
-	s, err := r.Sign(rand.Reader, digest[:], crypto.SHA256)
+	// s, err := r.Sign(rand.Reader, digest[:], crypto.SHA256)
+	// if err != nil {
+	// 	log.Fatalf("Error signing %v\n", err)
+	// }
+	// log.Printf("RSA Signed String: %s\n", base64.StdEncoding.EncodeToString(s))
+
+	//  convert the go-tpm-tools key for use directly with go-tpm
+
+	ba, err := k.Name().Digest.Encode()
 	if err != nil {
 		log.Fatalf("Error signing %v\n", err)
 	}
-	log.Printf("RSA Signed String: %s\n", base64.StdEncoding.EncodeToString(s))
+	kb := tpm2.TPM2BName{
+		Buffer: ba,
+	}
+	// log.Printf("H1 %s\n", hex.EncodeToString(regenRSAKey.Name.Buffer))
+	// log.Printf("H2 %s\n", hex.EncodeToString(kb.Buffer))
+
+	// create the EK if you wanted to use it for the salt in the encrypted session,
+	// otherwise, the encryption will use the auth value
+	// https://trustedcomputinggroup.org/wp-content/uploads/TCG_CPU_TPM_Bus_Protection_Guidance_Passive_Attack_Mitigation_8May23-3.pdf
+	// createEKRsp, err := tpm2.CreatePrimary{
+	// 	PrimaryHandle: tpm2.TPMRHEndorsement,
+	// 	InPublic:      tpm2.New2B(tpm2.RSAEKTemplate),
+	// }.Execute(rwr)
+	// if err != nil {
+	// 	log.Fatalf("can't close flush blob %v", err)
+	// }
+	// ekoutPub, err := createEKRsp.OutPublic.Contents()
+	// if err != nil {
+	// 	log.Fatalf("can't close flush blob %v", err)
+	// }
+	// defer func() {
+	// 	flushContextCmd := tpm2.FlushContext{
+	// 		FlushHandle: createEKRsp.ObjectHandle,
+	// 	}
+	// 	_, _ = flushContextCmd.Execute(rwr)
+	// }()
+	// / Execute(rwr, tpm2.HMAC(tpm2.TPMAlgSHA256, 16, tpm2.Auth(nil), tpm2.AESEncryption(128, tpm2.EncryptIn), tpm2.Salted(createEKRsp.ObjectHandle, *ekoutPub)))
+
+	// objAuth := &tpm2.TPM2BAuth{
+	// 	Buffer: keyPass,
+	// }
+	rspSign2, err := tpm2.Sign{
+		KeyHandle: tpm2.AuthHandle{
+			Handle: tpm2.TPMHandle(k.Handle().HandleValue()),
+			Name:   kb,
+			Auth:   tpm2.PasswordAuth(keyPass),
+		},
+
+		Digest: tpm2.TPM2BDigest{
+			Buffer: digest[:],
+		},
+		InScheme: tpm2.TPMTSigScheme{
+			Scheme: tpm2.TPMAlgRSASSA,
+			Details: tpm2.NewTPMUSigScheme(
+				tpm2.TPMAlgRSASSA,
+				&tpm2.TPMSSchemeHash{
+					HashAlg: tpm2.TPMAlgSHA256,
+				},
+			),
+		},
+		Validation: tpm2.TPMTTKHashCheck{
+			Tag: tpm2.TPMSTHashCheck,
+		},
+	}.Execute(rwr, tpm2.HMAC(tpm2.TPMAlgSHA256, 16, tpm2.AESEncryption(128, tpm2.EncryptIn))) // Execute(rwr, tpm2.HMAC(tpm2.TPMAlgSHA256, 16, tpm2.Auth(nil), tpm2.AESEncryption(128, tpm2.EncryptIn), tpm2.Salted(createEKRsp.ObjectHandle, *ekoutPub)))
+	if err != nil {
+		log.Fatalf("Failed to Sign: %v", err)
+	}
+
+	rsassa2, err := rspSign2.Signature.Signature.RSASSA()
+	if err != nil {
+		log.Fatalf("Failed to get signature part: %v", err)
+	}
+	log.Printf("signature from go-tpm-tools key : %s\n", base64.StdEncoding.EncodeToString(rsassa2.Sig.Buffer))
 
 }

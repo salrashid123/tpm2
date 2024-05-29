@@ -21,6 +21,8 @@ Also shown equivalent use of `go-tpm` library set.
 - [Trusted Platform Module Library Part 3: Commands](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-3-Commands-01.38.pdf)
 - [Trusted Platform Module Library Part 4: Supporting Routines](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-4-Supporting-Routines-01.38-code.pdf)
 
+- [CPU to TPM Bus Protection Guidance](https://trustedcomputinggroup.org/wp-content/uploads/TCG_CPU_TPM_Bus_Protection_Guidance_Passive_Attack_Mitigation_8May23-3.pdf)
+
 ---
 
 Update 8/28/21:  Added a gRPC client/server that does full remote attestation, quote/verify and secret sharing:

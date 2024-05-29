@@ -16,7 +16,7 @@ import (
 const ()
 
 var (
-	tpmPath    = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
+	tpmPath    = flag.String("tpm-path", "simulator", "Path to the TPM device (character device or a Unix socket).")
 	dataToSeal = flag.String("datatoseal", "secret", "data to sign")
 )
 
@@ -40,7 +40,7 @@ func main() {
 	//rwc, err := tpmutil.OpenTPM(*tpmPath)
 	//rwc, err := simulator.GetWithFixedSeedInsecure(1073741825)
 
-	rwc, err := OpenTPM("127.0.0.1:2321")
+	rwc, err := OpenTPM(*tpmPath)
 	if err != nil {
 		log.Fatalf("can't open TPM %q: %v", *tpmPath, err)
 	}
@@ -171,8 +171,11 @@ func main() {
 	// unseal with standalone session
 	log.Println("======= unsealing ========")
 
+	// using just the auth
+	sess, cleanup, err := tpm2.HMACSession(rwr, tpm2.TPMAlgSHA256, 16, tpm2.Auth(auth), tpm2.AESEncryption(128, tpm2.EncryptOut))
+
 	// salt with ek
-	sess, cleanup, err := tpm2.HMACSession(rwr, tpm2.TPMAlgSHA256, 16, tpm2.Auth(auth), tpm2.AESEncryption(128, tpm2.EncryptOut), tpm2.Salted(createEKRsp.ObjectHandle, *ekoutPub))
+	//sess, cleanup, err := tpm2.HMACSession(rwr, tpm2.TPMAlgSHA256, 16, tpm2.Auth(auth), tpm2.AESEncryption(128, tpm2.EncryptOut), tpm2.Salted(createEKRsp.ObjectHandle, *ekoutPub))
 
 	// or use primary srk
 	//sess, cleanup, err := tpm2.HMACSession(rwr, tpm2.TPMAlgSHA256, 16, tpm2.Auth(auth), tpm2.AESEncryption(128, tpm2.EncryptOut), tpm2.Salted(primaryKey.ObjectHandle, *outPub))
