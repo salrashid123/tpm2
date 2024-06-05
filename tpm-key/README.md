@@ -102,6 +102,22 @@ $ openssl asn1parse -inform PEM -in private.pem
 
 ```
 
+#### to print the public part of an encrypted file:
+
+```bash
+tpm2_print -t TSSPRIVKEY_OBJ private.pem -f pem
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6ila7sGempkwfThV8Dqj
+ZJe2WsYdIw9QF25w/br55NM9fLRjh8c7D+pbJiyfMsJzJKJnWwz+/HWZRxAt7J/+
+7rLUVE8B2/VFf4HPO+YDCdKrK20Wo7B9Se7UAUuHsxH/DCqAYvaIFMe4Ntc+3MrY
+iuOp69PCd8smR711bgpJZ3FwQ/EzPWZR1XQ3jCAjDs14OndHy9FL7oxj0iBGJ6m5
+mOA5aSNEbnTALDrQHLW6Ow6u8bokgXFvbJccUntfJjuv9yCQDSlZR5Mp6Y0xJM83
+ISkeW6wqLXrpHC4Uj05UjZpL8wTl2w08kYa67PBxMrn0BnODBi40raUxTbDh8tca
+pwIDAQAB
+-----END PUBLIC KEY-----
+```
+
+
 ---
 
 

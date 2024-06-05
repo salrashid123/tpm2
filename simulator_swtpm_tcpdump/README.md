@@ -23,6 +23,32 @@ tpm2_pcrextend 23:sha256=0x00000000000000000000000000000000000000000000000000000
 tpm2_pcrread sha256:23
   sha256:
     23: 0xF5A5FD42D16A20302798EF6ED309979B43003D2320D9F0E8EA9831A92759FB4B
+
+## note, tpm2_tools assumes resource manager so we need ot flush manually
+
+## RSA
+	tpm2_createprimary -C e -c primary.ctx
+	tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx
+	tpm2_flushcontext  -t
+	tpm2_getcap  handles-transient
+	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+	tpm2_evictcontrol -C o -c key.ctx 0x81008001
+
+## RSA-PSS
+	tpm2_createprimary -C e -c primary.ctx
+	tpm2_create -G rsa2048:rsapss:null -g sha256 -u key.pub -r key.priv -C primary.ctx
+	tpm2_flushcontext  -t
+	tpm2_getcap  handles-transient
+	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+	tpm2_evictcontrol -C o -c key.ctx 0x81008001
+
+## ECC
+	tpm2_createprimary -C e -c primary.ctx
+	tpm2_create -G ecc:ecdsa  -g sha256  -u key.pub -r key.priv -C primary.ctx
+	tpm2_flushcontext  -t
+	tpm2_getcap  handles-transient
+	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+	tpm2_evictcontrol -C o -c key.ctx 0x81008002	
 ```
 
 
