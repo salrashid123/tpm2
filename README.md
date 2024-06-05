@@ -83,9 +83,6 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 - `ek_import_rsa_blob`: Transfer RSA key from your local system to a GCP vTPM using its ekPub only. Example only covers `go-tpm` based transfer.  For example, use this mechanism to transfer a Service Account Private key securely such that the key on the vTPM cannot be exported but yet available to sign and authenticate.
       * see  to [https://github.com/salrashid123/gcp_tpm_sealed_keys](https://github.com/salrashid123/gcp_tpm_sealed_keys)
 
-- `utils`:  Utility functions
-    - Convert PEM formatted key to TPM2-tools format.
-
 - `mTLS`:  mTLS using `go-tpm` and nginx
 
 - `ima_policy`:  Sample 'helloworld' configuration of IMA.
