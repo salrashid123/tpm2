@@ -101,9 +101,46 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 
 - `resource_manager`:  `tpm0`` vs `tpmrm0`
 
+---
+
+### Software TPM
+
+If you want to test locally with a software tpm ([swtpm](https://github.com/stefanberger/swtpm)), install the swtpm and launch.
+
+Just note that AFAIK, the swtpm does *not* have a resrouce manager so you'll have to run `tpm2_flushcontext -t` a lot...
+
+
+- `swtpm socket`
+
+```bash
+rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm  && sudo swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear
+
+export TPM2TOOLS_TCTI="swtpm:port=2321"
+```
+
+
+- `swtpm socket` with `socat`
+
+```bash
+rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm  && sudo swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear
+
+sudo socat pty,link=/tmp/vtpm,raw,echo=0 tcp:localhost:2321
+sudo chmod go+rw /tmp/vtpm
+
+export TPM2TOOLS_TCTI="device:/tmp/vtpm"
+```
+
+- `swtpm chardev`
+
+TODO:, 
+
+
+---
+
+
 ### Usage
 
-Excercising any of the scenarios above requires access to a TPM(!).  You can use `vTPM` included with a Google Cloud [Shielded VM](https://cloud.google.com/shielded-vm/) surfaced at `/dev/tpm0` on the VM
+Excercising any of the scenarios above requires access to a TPM(!).  You can use `vTPM` included with a Google Cloud [Shielded VM](https://cloud.google.com/shielded-vm/) surfaced at `/dev/tpmrm0` on the VM
 
 #### Create test VM with TPM
 
