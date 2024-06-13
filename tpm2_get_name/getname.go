@@ -1,163 +1,153 @@
 package main
 
 import (
-	"crypto/rsa"
+	//"context"
+
 	"crypto/x509"
-	"flag"
-	"io/ioutil"
-	"log"
-
-	//"crypto/sha256"
-
 	"encoding/hex"
 	"encoding/pem"
+	"flag"
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"os"
+	"slices"
 
-	"github.com/google/go-tpm-tools/tpm2tools"
+	"github.com/google/go-tpm-tools/simulator"
 	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/tpm2/transport"
+	"github.com/google/go-tpm/tpmutil"
 )
-
-const ()
 
 var (
-	handleNames = map[string][]tpm2.HandleType{
-		"all":       []tpm2.HandleType{tpm2.HandleTypeLoadedSession, tpm2.HandleTypeSavedSession, tpm2.HandleTypeTransient},
-		"loaded":    []tpm2.HandleType{tpm2.HandleTypeLoadedSession},
-		"saved":     []tpm2.HandleType{tpm2.HandleTypeSavedSession},
-		"transient": []tpm2.HandleType{tpm2.HandleTypeTransient},
-	}
-
-	tpmPath = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
-
-	defaultEKTemplate = tpm2.Public{
-		Type:    tpm2.AlgRSA,
-		NameAlg: tpm2.AlgSHA256,
-		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
-			tpm2.FlagAdminWithPolicy | tpm2.FlagRestricted | tpm2.FlagDecrypt,
-		AuthPolicy: []byte{
-			0x83, 0x71, 0x97, 0x67, 0x44, 0x84,
-			0xB3, 0xF8, 0x1A, 0x90, 0xCC, 0x8D,
-			0x46, 0xA5, 0xD7, 0x24, 0xFD, 0x52,
-			0xD7, 0x6E, 0x06, 0x52, 0x0B, 0x64,
-			0xF2, 0xA1, 0xDA, 0x1B, 0x33, 0x14,
-			0x69, 0xAA,
-		},
-		RSAParameters: &tpm2.RSAParams{
-			Symmetric: &tpm2.SymScheme{
-				Alg:     tpm2.AlgAES,
-				KeyBits: 128,
-				Mode:    tpm2.AlgCFB,
-			},
-			KeyBits:    2048,
-			ModulusRaw: make([]byte, 256),
-		},
-	}
-
-	defaultKeyParams = tpm2.Public{
-		Type:    tpm2.AlgRSA,
-		NameAlg: tpm2.AlgSHA256,
-		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
-			tpm2.FlagUserWithAuth | tpm2.FlagRestricted | tpm2.FlagSign,
-		AuthPolicy: []byte{},
-		RSAParameters: &tpm2.RSAParams{
-			Sign: &tpm2.SigScheme{
-				Alg:  tpm2.AlgRSASSA,
-				Hash: tpm2.AlgSHA256,
-			},
-			KeyBits: 2048,
-		},
-	}
+	tpmPath   = flag.String("tpm-path", "127.0.0.1:2321", "Path to the TPM device (character device or a Unix socket).")
+	ekpubFile = flag.String("ekpubFile", "output.dat", "Path to the ekPublicKey.")
 )
+
+/*
+recreates the "name" from an ek rsa key
+
+$ go run main.go
+Name 000b7d5ae2283593ce63281bd4a5b681b50ceff54a49e17ee6e40bc8e82f47967d55
+PEM
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnMDg8UTDAfb8+wdYQFbz
+M3XkvBDBY30G77JlIuYH4FElqNUFruIrdGCW21jqCwauFJC/He+fjYJE7giy7TGi
+fr6yLn+f7fIeVYKB5bZofaO/8uRdRD4GsG8+Y3ywQdEsQuZ23bmAZHBZjfHdWGi8
+DYWTjIWfSaSRkKKLovaaV0vdLR+3AbVcswiTFYtxMjkHn/ss4CkBPGIzqyqFchFV
+I/DAhXn/xTtKPZYxLNelbvLH1hYoHEIyHfvw5nf+2CxINdVBWx5S2V6nFuzLXPYC
+WGtoAkVO7oM+So41pIy/C8iOix6NtfiNyOy7LfXzkvajiEX/Gn6c6wXiHNhayFLv
+2QIDAQAB
+-----END PUBLIC KEY-----
+
+Name 000b7d5ae2283593ce63281bd4a5b681b50ceff54a49e17ee6e40bc8e82f47967d55
+*/
+const ()
+
+var TPMDEVICES = []string{"/dev/tpm0", "/dev/tpmrm0"}
+
+func OpenTPM(path string) (io.ReadWriteCloser, error) {
+	if slices.Contains(TPMDEVICES, path) {
+		return tpmutil.OpenTPM(path)
+	} else if path == "simulator" {
+		return simulator.GetWithFixedSeedInsecure(1073741825)
+	} else {
+		return net.Dial("tcp", path)
+	}
+}
 
 func main() {
 
 	flag.Parse()
-	log.Println("======= Init  ========")
+	//ctx := context.Background()
 
-	rwc, err := tpm2.OpenTPM(*tpmPath)
+	rwc, err := OpenTPM(*tpmPath)
 	if err != nil {
-		log.Fatalf("can't open TPM %q: %v", tpmPath, err)
+		fmt.Fprintf(os.Stderr, "can't open TPM %s: %v", *tpmPath, err)
+		os.Exit(1)
 	}
 	defer func() {
 		if err := rwc.Close(); err != nil {
-			log.Fatalf("%v\ncan't close TPM %q: %v", tpmPath, err)
+			fmt.Fprintf(os.Stderr, "can't close TPM %q: %v", *tpmPath, err)
+			os.Exit(1)
 		}
 	}()
 
-	totalHandles := 0
-	for _, handleType := range handleNames["all"] {
-		handles, err := tpm2tools.Handles(rwc, handleType)
-		if err != nil {
-			log.Fatalf("getting handles: %v", err)
+	rwr := transport.FromReadWriter(rwc)
+
+	createEKRsp, err := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHEndorsement,
+		InPublic:      tpm2.New2B(tpm2.RSAEKTemplate),
+	}.Execute(rwr)
+	if err != nil {
+		log.Fatalf("error reading rsa public %v", err)
+	}
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: createEKRsp.ObjectHandle,
 		}
-		for _, handle := range handles {
-			if err = tpm2.FlushContext(rwc, handle); err != nil {
-				log.Fatalf("flushing handle 0x%x: %v", handle, err)
-			}
-			log.Printf("Handle 0x%x flushed\n", handle)
-			totalHandles++
-		}
-	}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
 
-	log.Printf("%d handles flushed\n", totalHandles)
+	fmt.Printf("Name %s\n", hex.EncodeToString(createEKRsp.Name.Buffer))
 
-	akPubBytes, err := ioutil.ReadFile("akPub.pem")
+	// to write the public to bytes and back
+	// bt := createEKRsp.OutPublic.Bytes()
+	// cc := tpm2.BytesAs2B[tpm2.TPMTPublic](bt)
+
+	// print the rsa key and recreate the "name" using key details
+
+	c, err := createEKRsp.OutPublic.Contents()
 	if err != nil {
-		log.Fatalf("Read failed for akPub.pem: %v", err)
-	}
-	block, _ := pem.Decode([]byte(akPubBytes))
-	if block == nil {
-		log.Fatalf("failed to parse PEM block containing the public key")
+		log.Fatalf("error reading rsa public %v", err)
 	}
 
-	pk, err := x509.ParsePKIXPublicKey(block.Bytes)
+	rsaDetail, err := c.Parameters.RSADetail()
 	if err != nil {
-		log.Fatalf("failed to parse DER encoded public key: " + err.Error())
+		log.Fatalf("error reading rsa public %v", err)
 	}
-	pkRsa := pk.(*rsa.PublicKey)
-
-	aPub := tpm2.Public{
-		Type:    tpm2.AlgRSA,
-		NameAlg: tpm2.AlgSHA256,
-		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
-			tpm2.FlagUserWithAuth | tpm2.FlagRestricted | tpm2.FlagSign,
-		AuthPolicy: []byte{},
-		RSAParameters: &tpm2.RSAParams{
-			Sign: &tpm2.SigScheme{
-				Alg:  tpm2.AlgRSASSA,
-				Hash: tpm2.AlgSHA256,
-			},
-			KeyBits: 2048,
-			//ExponentRaw: uint32(pkRsa.E),
-			ModulusRaw: pkRsa.N.Bytes(),
-		},
-	}
-
-	akh, keyName, err := tpm2.LoadExternal(rwc, aPub, tpm2.Private{}, tpm2.HandleNull)
+	rsaUnique, err := c.Unique.RSA()
 	if err != nil {
-		log.Fatalf("Error loadingExternal EK %v", err)
-	}
-	defer tpm2.FlushContext(rwc, akh)
-	tpmAkPub, _, _, err := tpm2.ReadPublic(rwc, akh)
-	if err != nil {
-		log.Fatalf("ReadPublic failed: %s", err)
+		log.Fatalf("error reading rsa unique %v", err)
 	}
 
-	p, err := tpmAkPub.Key()
+	rsaPub, err := tpm2.RSAPub(rsaDetail, rsaUnique)
 	if err != nil {
-		log.Fatalf("tpmAkPub.Key() failed: %s", err)
+		log.Fatalf("Failed to get rsa public key: %v", err)
 	}
 
-	b, err := x509.MarshalPKIXPublicKey(p)
+	b, err := x509.MarshalPKIXPublicKey(rsaPub)
 	if err != nil {
-		log.Fatalf("Unable to convert akpub: %v", err)
+		log.Fatalf("Failed to get rsa public key: %v", err)
 	}
 
-	akPubPEM := pem.EncodeToMemory(
-		&pem.Block{
-			Type:  "PUBLIC KEY",
-			Bytes: b,
+	publicKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: b,
+	})
+
+	fmt.Printf("PEM \n%s\n", string(publicKeyPEM))
+
+	// recreate the "name" using just the RSA Public Key modulus
+	// https://github.com/google/go-tpm-tools/blob/6a70865538a8e7e85b95164bba3ae855f4bc4f68/server/key_conversion.go#L30
+
+	u := tpm2.NewTPMUPublicID(
+		tpm2.TPMAlgRSA,
+		&tpm2.TPM2BPublicKeyRSA{
+			Buffer: rsaPub.N.Bytes(),
 		},
 	)
-	log.Printf("akPub Name: %v", hex.EncodeToString(keyName))
-	log.Printf("akPub: \n%v", string(akPubPEM))
+
+	ekPububFromPEMTemplate := tpm2.RSAEKTemplate
+
+	ekPububFromPEMTemplate.Unique = u
+
+	n, err := tpm2.ObjectName(&ekPububFromPEMTemplate)
+	if err != nil {
+		log.Fatalf("Failed to get name key: %v", err)
+	}
+
+	fmt.Printf("Name %s\n", hex.EncodeToString(n.Buffer))
+
 }
