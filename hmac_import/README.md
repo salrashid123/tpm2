@@ -40,35 +40,3 @@ tpm2 load -C primary.ctx -u hmac.pub -r hmac.priv -c hmac.ctx
 echo -n $plain | tpm2_hmac -g sha256 -c hmac.ctx | xxd -p -c 256
     7c50506d993b4a10e5ae6b33ca951bf2b8c8ac399e0a34026bb0ac469bea3de2
 ```
-
-### go-tpm
-
-Now use go-tpm to create an hmac key, then either save the go-tpm handle to a file or to a persistent handle `0x81010002`
-
-if you run the app, you'll see the predictable hash we got with openssl and that key and message:
-
-```bash
-# go run main.go --mode=import
-# go run main.go --mode=sign
-   digest 7c50506d993b4a10e5ae6b33ca951bf2b8c8ac399e0a34026bb0ac469bea3de2
-
-```
-
-### hmac import to files
-
-The default example loads the hmac key and saves to a persistentHandle
-
-if you want to save and load to a file see the `file_import/` folder, its usage is
-
-```bash
-cd file_import/
-$ go run main.go --mode=import --secretAccessKey="change this password to a secret"
-======= Init importHMAC ========
-
-$ ls
-go.mod	go.sum	main.go  priv.dat  pub.dat
-
-$ go run main.go --mode=sign  --stringToHash="foo"
-======= Generating Signature ========
-digest 7c50506d993b4a10e5ae6b33ca951bf2b8c8ac399e0a34026bb0ac469bea3de2
-```
