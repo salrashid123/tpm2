@@ -1,4 +1,13 @@
-## Using Policies to AES Encrypt/Decrypt
+## Using Policies to RSA Signatures and AES Encrypt/Decrypt
+
+
+i'm using the swtpm here:
+
+```bash
+rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm  && sudo swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear
+
+export TPM2TOOLS_TCTI="swtpm:port=2321"
+```
 
 ## No Policy
 
@@ -6,7 +15,7 @@
 echo "foo" > secret.dat
 openssl rand  -out iv.bin 16
 
-tpm2_createprimary -C e -g sha1 -G rsa -c primary.ctx
+tpm2_createprimary -C o -g sha1 -G rsa -c primary.ctx
 tpm2_create -g sha256 -G aes -u key.pub -r key.priv -C primary.ctx
 tpm2_load -C primary.ctx -u key.pub -r key.priv -n key.name -c aes.ctx
 tpm2_encryptdecrypt -Q --iv iv.bin -c aes.ctx -o cipher.out secret.dat

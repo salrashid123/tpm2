@@ -4,12 +4,15 @@ import (
 	"crypto"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/pem"
 	"flag"
 	"io"
 	"log"
 	"net"
+	"os"
 	"slices"
 
 	"github.com/google/go-tpm-tools/simulator"
@@ -22,6 +25,7 @@ const ()
 
 var (
 	tpmPath    = flag.String("tpm-path", "simulator", "Path to the TPM device (character device or a Unix socket).")
+	pemFile    = flag.String("pemFile", "private.pem", "Private key PEM format file")
 	dataToSign = flag.String("datatosign", "foo", "data to sign")
 )
 
@@ -52,15 +56,30 @@ func main() {
 
 	rwr := transport.FromReadWriter(rwc)
 
-	log.Printf("======= createPrimary ========")
+	kdata, err := os.ReadFile(*pemFile)
+
+	if err != nil {
+		log.Fatalf("     Unable to read serviceAccountFile %v", err)
+	}
+	block, _ := pem.Decode(kdata)
+	if block == nil {
+		log.Fatalf("     Failed to decode PEM block containing the key %v", err)
+	}
+	pvp, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		log.Fatalf("     Failed to parse PEM block containing the key %v", err)
+	}
+
+	pv := pvp.(*rsa.PrivateKey)
+
+	log.Printf("======= createPrimary ======== ")
 
 	data := []byte(*dataToSign)
 
-	cmdPrimary := tpm2.CreatePrimary{
+	primaryKey, err := tpm2.CreatePrimary{
 		PrimaryHandle: tpm2.TPMRHOwner,
 		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
-	}
-	primaryKey, err := cmdPrimary.Execute(rwr)
+	}.Execute(rwr)
 	if err != nil {
 		log.Fatalf("can't create primary %v", err)
 	}
@@ -73,7 +92,6 @@ func main() {
 	}()
 
 	log.Printf("primaryKey Name %s\n", hex.EncodeToString(primaryKey.Name.Buffer))
-	log.Printf("primaryKey handle Value %d\n", cmdPrimary.PrimaryHandle.HandleValue())
 
 	// rsa
 
@@ -81,16 +99,17 @@ func main() {
 		Type:    tpm2.TPMAlgRSA,
 		NameAlg: tpm2.TPMAlgSHA256,
 		ObjectAttributes: tpm2.TPMAObject{
-			SignEncrypt:         true,
-			FixedTPM:            true,
-			FixedParent:         true,
-			SensitiveDataOrigin: true,
+			FixedTPM:            false,
+			FixedParent:         false,
+			SensitiveDataOrigin: false,
 			UserWithAuth:        true,
+			SignEncrypt:         true,
 		},
 		AuthPolicy: tpm2.TPM2BDigest{},
 		Parameters: tpm2.NewTPMUPublicParms(
 			tpm2.TPMAlgRSA,
 			&tpm2.TPMSRSAParms{
+				Exponent: uint32(pv.PublicKey.E),
 				Scheme: tpm2.TPMTRSAScheme{
 					Scheme: tpm2.TPMAlgRSASSA,
 					Details: tpm2.NewTPMUAsymScheme(
@@ -103,15 +122,46 @@ func main() {
 				KeyBits: 2048,
 			},
 		),
+
+		Unique: tpm2.NewTPMUPublicID(
+			tpm2.TPMAlgRSA,
+			&tpm2.TPM2BPublicKeyRSA{
+				Buffer: pv.PublicKey.N.Bytes(),
+			},
+		),
 	}
 
-	rsaKeyResponse, err := tpm2.CreateLoaded{
+	sens2B := tpm2.Marshal(tpm2.TPMTSensitive{
+		SensitiveType: tpm2.TPMAlgRSA,
+		Sensitive: tpm2.NewTPMUSensitiveComposite(
+			tpm2.TPMAlgRSA,
+			&tpm2.TPM2BPrivateKeyRSA{Buffer: pv.Primes[0].Bytes()},
+		),
+	})
+
+	l := tpm2.Marshal(tpm2.TPM2BPrivate{Buffer: sens2B})
+
+	importResponse, err := tpm2.Import{
 		ParentHandle: tpm2.AuthHandle{
 			Handle: primaryKey.ObjectHandle,
 			Name:   primaryKey.Name,
 			Auth:   tpm2.PasswordAuth(nil),
 		},
-		InPublic: tpm2.New2BTemplate(&rsaTemplate),
+		ObjectPublic: tpm2.New2B(rsaTemplate),
+		Duplicate:    tpm2.TPM2BPrivate{Buffer: l},
+	}.Execute(rwr)
+	if err != nil {
+		log.Fatalf("can't create rsa %v", err)
+	}
+
+	loadResponse, err := tpm2.Load{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: primaryKey.ObjectHandle,
+			Name:   primaryKey.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPublic:  tpm2.New2B(rsaTemplate),
+		InPrivate: importResponse.OutPrivate,
 	}.Execute(rwr)
 	if err != nil {
 		log.Fatalf("can't create rsa %v", err)
@@ -119,62 +169,18 @@ func main() {
 
 	defer func() {
 		flushContextCmd := tpm2.FlushContext{
-			FlushHandle: rsaKeyResponse.ObjectHandle,
+			FlushHandle: loadResponse.ObjectHandle,
 		}
 		_, _ = flushContextCmd.Execute(rwr)
 	}()
-	// *************** evict
-
-	persistentHandle := 0x81008001
-
-	// https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html#section-3.1.8
-	_, err = tpm2.EvictControl{
-		Auth: tpm2.TPMRHOwner,
-		ObjectHandle: &tpm2.NamedHandle{
-			Handle: rsaKeyResponse.ObjectHandle,
-			Name:   rsaKeyResponse.Name,
-		},
-		PersistentHandle: tpm2.TPMHandle(persistentHandle),
-	}.Execute(rwr)
-	if err != nil {
-		log.Fatalf("can't create rsa %v", err)
-	}
-
-	pub, err := rsaKeyResponse.OutPublic.Contents()
-	if err != nil {
-		log.Fatalf("Failed to get rsa public: %v", err)
-	}
-	rsaDetail, err := pub.Parameters.RSADetail()
-	if err != nil {
-		log.Fatalf("Failed to get rsa details: %v", err)
-	}
-	rsaUnique, err := pub.Unique.RSA()
-	if err != nil {
-		log.Fatalf("Failed to get rsa unique: %v", err)
-	}
-
-	rsaPub, err := tpm2.RSAPub(rsaDetail, rsaUnique)
-	if err != nil {
-		log.Fatalf("Failed to get rsa public key: %v", err)
-	}
-
-	/// ============================ =================================================================================================
 
 	log.Printf("======= generate test signature with RSA key ========")
-
-	ppub, err := tpm2.ReadPublic{
-		ObjectHandle: tpm2.TPMHandle(tpm2.TPMHandle(persistentHandle)),
-	}.Execute(rwr)
-	if err != nil {
-		log.Fatalf("can't read pulbnic rsa %v", err)
-	}
-
 	digest := sha256.Sum256(data)
 
 	sign := tpm2.Sign{
 		KeyHandle: tpm2.NamedHandle{
-			Handle: tpm2.TPMHandle(persistentHandle),
-			Name:   ppub.Name,
+			Handle: loadResponse.ObjectHandle,
+			Name:   loadResponse.Name,
 		},
 		Digest: tpm2.TPM2BDigest{
 			Buffer: digest[:],
@@ -204,8 +210,29 @@ func main() {
 	}
 	log.Printf("signature: %s\n", base64.StdEncoding.EncodeToString(rsassa.Sig.Buffer))
 
+	rsaKeyResponse := tpm2.New2B(rsaTemplate)
+
+	pub, err := rsaKeyResponse.Contents()
+	if err != nil {
+		log.Fatalf("Failed to get rsa public: %v", err)
+	}
+	rsaDetail, err := pub.Parameters.RSADetail()
+	if err != nil {
+		log.Fatalf("Failed to get rsa details: %v", err)
+	}
+	rsaUnique, err := pub.Unique.RSA()
+	if err != nil {
+		log.Fatalf("Failed to get rsa unique: %v", err)
+	}
+
+	rsaPub, err := tpm2.RSAPub(rsaDetail, rsaUnique)
+	if err != nil {
+		log.Fatalf("Failed to get rsa public key: %v", err)
+	}
+
 	if err := rsa.VerifyPKCS1v15(rsaPub, crypto.SHA256, digest[:], rsassa.Sig.Buffer); err != nil {
 		log.Fatalf("Failed to verify signature: %v", err)
 	}
 
+	log.Println("Verified")
 }

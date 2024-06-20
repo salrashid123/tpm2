@@ -6,6 +6,10 @@ The primary focus is how use `tpm2_tools` to perform common tasks that i've come
 
 Also shown equivalent use of `go-tpm` library set.
 
+for the `go-tpm` examples, i am slowly migrating them over to the [go-tpm direct](https://github.com/google/go-tpm/releases/tag/v0.9.0) API.  If you would rather use the legacy version, just check the commit history to maybe a snapshot at July 2024.
+
+>> Many of the examples with tpm-direct uses `tpm2.EncryptDecrypt2` which isn't implemented yet updstream but i do have it working on a local fork which i'll submit a PR for shortly (see [encrypt_decrypt_aes/README.md](encrypt_decrypt_aes/README.md))
+
 
 - [tpm2-tools](https://github.com/tpm2-software/tpm2-tools)
 - [go-tpm](https://github.com/google/go-tpm)
@@ -61,7 +65,9 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 
 - `tpm_encrypted_session`: demonstrate session encryption to protect cpu->tpm bus interface
 
-- `encrypte_decrypt_aes_with_session`:  encrypt decrypt with aes with a pcr and password policy
+- `password`: Encrypt/Decrypt with passwords on parent and key
+
+- `h2_primary_template`: using the H2 primary key template
 
 - `tpm_import_external_rsa`: Import external RSA key to TPM; decrypt data with TPM (`tpm2_import, tpm2_load, tpm2_rsadecrypt`)
 

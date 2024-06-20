@@ -2,7 +2,7 @@
 ### ASN1 format for TPM keys
 
 
-Verify TPM RSA and HMAC Key files using [github.com/foxboron/go-tpm-keyfiles](https://github.com/Foxboron/go-tpm-keyfiles).
+Verify TPM RSA files using [github.com/foxboron/go-tpm-keyfiles](https://github.com/Foxboron/go-tpm-keyfiles).
 
 
 This allows for a compact and standard asn.1 format described in https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html openssl honors.
@@ -121,36 +121,3 @@ pwIDAQAB
 ---
 
 
-
-============================================
-
-
-
-### HMAC
-
-
-
-```log
-$ cd hmac/
-$ go run .
-
-2024/05/23 12:28:20 ======= Init  ========
-2024/05/23 12:28:20 ======= createPrimary ========
-2024/05/23 12:28:20 primaryKey Name 000bef85b9557ea21ec96727566d292ec209c9c91c11e79f5e7f02b82bb3c43110be
-2024/05/23 12:28:20 primaryKey handle Value 1073741825
-2024/05/23 12:28:20 hmac Key PEM: 
------BEGIN TSS2 PRIVATE KEY-----
-MIIBBgYGZ4EFCgEDAgUAgAAAAARSAFAACAALAAQAcgAgPIeks/uF6+6ljF+zasIt
-PygM7Cep9t0PojvpzlYN7sgABQALACALkrtR0ijcOzJdwprQadMyTEdzIwqGnk7z
-n9nQ3PWTIwSBoACeACASC4xdkkwspKhO6UhbAZteZHdQI/igXBlUIm7t3+5WfgAQ
-KOQzdmyLn36MID5d9uOc5T5x0+WyCdE/6zKsaTN2lz2aT8z37fIbuTo0cj+D+Qp5
-6ObzMybCJqC9qQuNisx4PSw9JrlMWouLHv2fDXd9+b10gOmCaUUFUBL2vBv7DRqe
-G96EeRYGi6hjRiw6K6pnOqeo2bFUjvCCDUI=
------END TSS2 PRIVATE KEY-----
-
-2024/05/23 12:28:20 Hmac: 2ha48OE/jc+RgINBe5GSfhqgqqfL9JVikSkqf89GQkg=
-2024/05/23 12:28:20 regenerated primary key name 000bef85b9557ea21ec96727566d292ec209c9c91c11e79f5e7f02b82bb3c43110be
-2024/05/23 12:28:20 recalculated hmac:  2ha48OE/jc+RgINBe5GSfhqgqqfL9JVikSkqf89GQkg=
-
-
-```

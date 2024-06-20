@@ -43,13 +43,3 @@ ERROR: Unable to run tpm2_unseal
 ```
 
 ---
-
-```
-# go run main.go --pcr 23
-// 2019/10/28 23:27:08 Handle 0x2000000 flushed
-// 2019/10/28 23:27:08 Handle 0x2000001 flushed
-// 2019/10/28 23:27:08 2 handles flushed
-// 2019/10/28 23:27:08 Loaded SRK: {<nil> 0xc00000ea60}
-// 2019/10/28 23:27:08 PCR [23] handle: 23
-// 2019/10/28 23:27:08 Key material sealed on file [0xc00004a720] with PCR: 23
-```

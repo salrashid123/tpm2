@@ -5,7 +5,8 @@ Snippet which shows how to setup a simple https mtls server using `openssl` and 
 
 * [TLS and s_server](https://github.com/tpm2-software/tpm2-tss-engine#tls-and-s_server)
 * [nginx with TPM based SSL](https://blog.salrashid.dev/articles/2021/nginx_with_tpm_ssl/)
-
+* [TPM based TLS using Attested Keys](https://github.com/salrashid123/tls_ak)
+* [mTLS with TPM bound private key](https://github.com/salrashid123/go_tpm_https_embed)
 
 For this we will be using a test ca authority
 

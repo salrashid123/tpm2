@@ -1,531 +1,371 @@
 package main
 
 import (
-	"crypto/x509"
+	"bytes"
 	"encoding/hex"
 	"encoding/pem"
 	"flag"
-	"fmt"
+	"io"
 	"log"
-	"os"
+	"net"
+	"slices"
 
-	"io/ioutil"
-
-	"github.com/golang/glog"
-	"github.com/google/go-tpm-tools/tpm2tools"
+	"github.com/google/go-tpm-tools/simulator"
 	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/tpm2/transport"
+	"github.com/google/go-tpm/tpmutil"
 )
 
-const defaultRSAExponent = 1<<16 + 1
-
-var handleNames = map[string][]tpm2.HandleType{
-	"all":       []tpm2.HandleType{tpm2.HandleTypeLoadedSession, tpm2.HandleTypeSavedSession, tpm2.HandleTypeTransient},
-	"loaded":    []tpm2.HandleType{tpm2.HandleTypeLoadedSession},
-	"saved":     []tpm2.HandleType{tpm2.HandleTypeSavedSession},
-	"transient": []tpm2.HandleType{tpm2.HandleTypeTransient},
-}
+const ()
 
 var (
-	mode   = flag.String("mode", "", "createKey,makeCredential,activateCredential")
-	secret = flag.String("secret", "meet me at...", "secret")
-	// keyName           = flag.String("keyName", "", "KeyName")
-	ekPubFilepub      = flag.String("ekPubFile", "ek.bin", "ekPub file")
-	akPubFile         = flag.String("akPubFile", "akPub.bin", "akPub file")
-	tpmPath           = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
-	pcr               = flag.Int("pcr", -1, "PCR to seal data to. Must be within [0, 23].")
-	defaultEKTemplate = tpm2.Public{
-		Type:    tpm2.AlgRSA,
-		NameAlg: tpm2.AlgSHA256,
-		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
-			tpm2.FlagAdminWithPolicy | tpm2.FlagRestricted | tpm2.FlagDecrypt,
-		AuthPolicy: []byte{
-			0x83, 0x71, 0x97, 0x67, 0x44, 0x84,
-			0xB3, 0xF8, 0x1A, 0x90, 0xCC, 0x8D,
-			0x46, 0xA5, 0xD7, 0x24, 0xFD, 0x52,
-			0xD7, 0x6E, 0x06, 0x52, 0x0B, 0x64,
-			0xF2, 0xA1, 0xDA, 0x1B, 0x33, 0x14,
-			0x69, 0xAA,
-		},
-		RSAParameters: &tpm2.RSAParams{
-			Symmetric: &tpm2.SymScheme{
-				Alg:     tpm2.AlgAES,
-				KeyBits: 128,
-				Mode:    tpm2.AlgCFB,
-			},
-			KeyBits:    2048,
-			ModulusRaw: make([]byte, 256),
-		},
-	}
-
-	defaultKeyParams = tpm2.Public{
-		Type:    tpm2.AlgRSA,
-		NameAlg: tpm2.AlgSHA256,
-		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
-			tpm2.FlagUserWithAuth | tpm2.FlagRestricted | tpm2.FlagSign,
-		AuthPolicy: []byte{},
-		RSAParameters: &tpm2.RSAParams{
-			Sign: &tpm2.SigScheme{
-				Alg:  tpm2.AlgRSASSA,
-				Hash: tpm2.AlgSHA256,
-			},
-			KeyBits: 2048,
-		},
-	}
+	tpmPath = flag.String("tpm-path", "simulator", "Path to the TPM device (character device or a Unix socket).")
+	secret  = flag.String("secret", "meet me at...", "secret")
 )
+
+var TPMDEVICES = []string{"/dev/tpm0", "/dev/tpmrm0"}
+
+func OpenTPM(path string) (io.ReadWriteCloser, error) {
+	if slices.Contains(TPMDEVICES, path) {
+		return tpmutil.OpenTPM(path)
+	} else if path == "simulator" {
+		return simulator.GetWithFixedSeedInsecure(1073741825)
+	} else {
+		return net.Dial("tcp", path)
+	}
+}
 
 func main() {
 	flag.Parse()
 
-	if *pcr < 0 || *pcr > 23 {
-		fmt.Fprintf(os.Stderr, "Invalid flag 'pcr': value %d is out of range", *pcr)
-		os.Exit(1)
-	}
+	log.Println("======= Init  ========")
 
-	if *mode != "createKey" && *mode != "makeCredential" && *mode != "activateCredential" {
-		fmt.Fprintf(os.Stderr, "mode must be one of createKey|makeCredential|activateCredential got: %v", *mode)
-		os.Exit(1)
-	}
-
-	var err error
-	switch *mode {
-	case "createKey":
-		name, err := createKeys(*pcr, *tpmPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error createKeys: %v\n", err)
-			os.Exit(1)
-		}
-		keyNameBytes, err := hex.DecodeString(name)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error decoding key: %v\n", err)
-			os.Exit(1)
-		}
-		glog.V(2).Infof("keyNameBytes  %v ", hex.EncodeToString(keyNameBytes))
-	case "makeCredential":
-		err = makeCredential(*pcr, *tpmPath, *secret)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error makeCredential: %v\n", err)
-			os.Exit(1)
-		}
-	case "activateCredential":
-		err = activateCredential(*pcr, *tpmPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error makeCredential: %v\n", err)
-			os.Exit(1)
-		}
-	}
-
-}
-
-func createKeys(pcr int, tpmPath string) (n string, retErr error) {
-
-	glog.V(2).Infof("======= Init CreateKeys ========")
-
-	rwc, err := tpm2.OpenTPM(tpmPath)
+	rwc, err := OpenTPM(*tpmPath)
 	if err != nil {
-		glog.Fatalf("can't open TPM %q: %v", tpmPath, err)
+		log.Fatalf("can't open TPM %q: %v", *tpmPath, err)
 	}
 	defer func() {
-		if err := rwc.Close(); err != nil {
-			glog.Fatalf("%v\ncan't close TPM %q: %v", retErr, tpmPath, err)
-		}
+		rwc.Close()
 	}()
 
-	totalHandles := 0
-	for _, handleType := range handleNames["transient"] {
-		handles, err := tpm2tools.Handles(rwc, handleType)
-		if err != nil {
-			glog.Fatalf("getting handles: %v", err)
+	rwr := transport.FromReadWriter(rwc)
+
+	log.Printf("======= createPrimary RSAEKTemplate ========")
+
+	primaryKey, err := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHEndorsement,
+		InPublic:      tpm2.New2B(tpm2.RSAEKTemplate),
+	}.Execute(rwr)
+	if err != nil {
+		log.Fatalf("can't create primary %v", err)
+	}
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: primaryKey.ObjectHandle,
 		}
-		for _, handle := range handles {
-			if err = tpm2.FlushContext(rwc, handle); err != nil {
-				glog.Fatalf("flushing handle 0x%x: %v", handle, err)
-			}
-			glog.V(2).Infof("Handle 0x%x flushed\n", handle)
-			totalHandles++
-		}
-	}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
 
-	glog.V(2).Infof("%d handles flushed\n", totalHandles)
+	log.Printf("primaryKey Name %s\n", hex.EncodeToString(primaryKey.Name.Buffer))
 
-	pcrList := []int{pcr}
-	pcrval, err := tpm2.ReadPCR(rwc, pcr, tpm2.AlgSHA256)
+	pub, err := primaryKey.OutPublic.Contents()
 	if err != nil {
-		glog.Fatalf("Unable to  ReadPCR : %v", err)
+		log.Fatalf("Failed to get rsa public: %v", err)
 	}
-	glog.V(2).Infof("PCR %v Value %v ", pcr, hex.EncodeToString(pcrval))
-
-	pcrSelection23 := tpm2.PCRSelection{Hash: tpm2.AlgSHA256, PCRs: pcrList}
-	emptyPassword := ""
-
-	glog.V(2).Infof("======= createPrimary ========")
-
-	ekh, _, err := tpm2.CreatePrimary(rwc, tpm2.HandleEndorsement, pcrSelection23, emptyPassword, emptyPassword, defaultEKTemplate)
-	//ekh, _, _, creationHash, _, _, err := tpm2.CreatePrimaryEx(rwc, tpm2.HandleEndorsement, pcrSelection23, emptyPassword, emptyPassword, defaultEKTemplate)
+	rsaDetail, err := pub.Parameters.RSADetail()
 	if err != nil {
-		glog.Fatalf("creating EK: %v", err)
+		log.Fatalf("Failed to get rsa details: %v", err)
 	}
-	defer tpm2.FlushContext(rwc, ekh)
-
-	// reread the pub eventhough tpm2.CreatePrimary* gives pub
-	tpmEkPub, name, _, err := tpm2.ReadPublic(rwc, ekh)
+	rsaUnique, err := pub.Unique.RSA()
 	if err != nil {
-		glog.Fatalf("ReadPublic failed: %s", err)
+		log.Fatalf("Failed to get rsa unique: %v", err)
 	}
 
-	p, err := tpmEkPub.Key()
+	rsaPub, err := tpm2.RSAPub(rsaDetail, rsaUnique)
 	if err != nil {
-		glog.Fatalf("tpmEkPub.Key() failed: %s", err)
+		log.Fatalf("Failed to get rsa public key: %v", err)
 	}
-	glog.V(10).Infof("tpmEkPub: \n%v", p)
 
-	b, err := x509.MarshalPKIXPublicKey(p)
+	block := &pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: rsaPub.N.Bytes(),
+	}
+	primaryPEMByte := pem.EncodeToMemory(block)
+	log.Printf("RSA Primary \n%s\n", string(primaryPEMByte))
+
+	// rsa
+
+	// rsaTemplate := tpm2.TPMTPublic{
+	// 	Type:    tpm2.TPMAlgRSA,
+	// 	NameAlg: tpm2.TPMAlgSHA256,
+	// 	ObjectAttributes: tpm2.TPMAObject{
+	// 		SignEncrypt:         true,
+	// 		FixedTPM:            true,
+	// 		FixedParent:         true,
+	// 		SensitiveDataOrigin: true,
+	// 		UserWithAuth:        true,
+	// 		Restricted:          true,
+	// 	},
+	// 	AuthPolicy: tpm2.TPM2BDigest{},
+	// 	Parameters: tpm2.NewTPMUPublicParms(
+	// 		tpm2.TPMAlgRSA,
+	// 		&tpm2.TPMSRSAParms{
+	// 			Scheme: tpm2.TPMTRSAScheme{
+	// 				Scheme: tpm2.TPMAlgRSASSA,
+	// 				Details: tpm2.NewTPMUAsymScheme(
+	// 					tpm2.TPMAlgRSASSA,
+	// 					&tpm2.TPMSSigSchemeRSASSA{
+	// 						HashAlg: tpm2.TPMAlgSHA256,
+	// 					},
+	// 				),
+	// 			},
+	// 			KeyBits: 2048,
+	// 		},
+	// 	),
+	// }
+
+	sess, cleanup1, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16)
 	if err != nil {
-		glog.Fatalf("Unable to convert ekpub: %v", err)
+		log.Fatalf("setting up trial session: %v", err)
+	}
+	defer func() {
+		cleanup1()
+
+	}()
+
+	_, err = tpm2.PolicySecret{
+		AuthHandle:    tpm2.TPMRHEndorsement,
+		NonceTPM:      sess.NonceTPM(),
+		PolicySession: sess.Handle(),
+	}.Execute(rwr)
+	if err != nil {
+		log.Fatalf("error executing PolicySecret: %v", err)
 	}
 
-	ekPubPEM := pem.EncodeToMemory(
-		&pem.Block{
-			Type:  "PUBLIC KEY",
-			Bytes: b,
+	// // verify the digest
+	// pgd, err := tpm2.PolicyGetDigest{
+	// 	PolicySession: sess.Handle(),
+	// }.Execute(rwr)
+	// if err != nil {
+	// 	log.Fatalf("error executing PolicyGetDigest: %v", err)
+	// }
+
+	rsaKeyResponse, err := tpm2.CreateLoaded{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: primaryKey.ObjectHandle,
+			Name:   primaryKey.Name,
+			Auth:   sess,
 		},
-	)
-	glog.V(2).Infof("ekPub Name: %v", hex.EncodeToString(name))
-	glog.V(2).Infof("ekPub: \n%v", string(ekPubPEM))
-
-	glog.V(2).Infof("======= Write (ekPub) ========")
-	ekPubBytes, err := tpmEkPub.Encode()
+		InPublic: tpm2.New2BTemplate(&tpm2.RSASRKTemplate),
+	}.Execute(rwr)
 	if err != nil {
-		glog.Fatalf("Save failed for ekPubWire: %v", err)
-	}
-	err = ioutil.WriteFile("ekPub.bin", ekPubBytes, 0644)
-	if err != nil {
-		glog.Fatalf("Save failed for ekPub: %v", err)
+		log.Fatalf("can't create rsa %v", err)
 	}
 
-	glog.V(2).Infof("======= CreateKeyUsingAuth ========")
-
-	sessCreateHandle, _, err := tpm2.StartAuthSession(
-		rwc,
-		tpm2.HandleNull,
-		tpm2.HandleNull,
-		make([]byte, 16),
-		nil,
-		tpm2.SessionPolicy,
-		tpm2.AlgNull,
-		tpm2.AlgSHA256)
-	if err != nil {
-		glog.Fatalf("Unable to create StartAuthSession : %v", err)
-	}
-	defer tpm2.FlushContext(rwc, sessCreateHandle)
-
-	if _, err := tpm2.PolicySecret(rwc, tpm2.HandleEndorsement, tpm2.AuthCommand{Session: tpm2.HandlePasswordSession, Attributes: tpm2.AttrContinueSession}, sessCreateHandle, nil, nil, nil, 0); err != nil {
-		glog.Fatalf("Unable to create PolicySecret: %v", err)
-	}
-
-	authCommandCreateAuth := tpm2.AuthCommand{Session: sessCreateHandle, Attributes: tpm2.AttrContinueSession}
-
-	akPriv, akPub, creationData, creationHash, creationTicket, err := tpm2.CreateKeyUsingAuth(rwc, ekh, pcrSelection23, authCommandCreateAuth, emptyPassword, defaultKeyParams)
-	if err != nil {
-		glog.Fatalf("CreateKey failed: %s", err)
-	}
-	glog.V(5).Infof("akPub: %v,", hex.EncodeToString(akPub))
-	glog.V(5).Infof("akPriv: %v,", hex.EncodeToString(akPriv))
-
-	cr, err := tpm2.DecodeCreationData(creationData)
-	if err != nil {
-		glog.Fatalf("Unable to  DecodeCreationData : %v", err)
-	}
-
-	glog.V(10).Infof("CredentialData.ParentName.Digest.Value %v", hex.EncodeToString(cr.ParentName.Digest.Value))
-	glog.V(10).Infof("CredentialTicket %v", hex.EncodeToString(creationTicket.Digest))
-	glog.V(10).Infof("CredentialHash %v", hex.EncodeToString(creationHash))
-
-	glog.V(2).Infof("======= ContextSave (ek) ========")
-	ekhBytes, err := tpm2.ContextSave(rwc, ekh)
-	if err != nil {
-		glog.Fatalf("ContextSave failed for ekh: %v", err)
-	}
-	err = ioutil.WriteFile("ek.bin", ekhBytes, 0644)
-	if err != nil {
-		glog.Fatalf("ContextSave failed for ekh: %v", err)
-	}
-	tpm2.FlushContext(rwc, ekh)
-
-	glog.V(2).Infof("======= ContextLoad (ek) ========")
-	ekhBytes, err = ioutil.ReadFile("ek.bin")
-	if err != nil {
-		glog.Fatalf("ContextLoad failed for ekh: %v", err)
-	}
-	ekh, err = tpm2.ContextLoad(rwc, ekhBytes)
-	if err != nil {
-		glog.Fatalf("ContextLoad failed for ekh: %v", err)
-	}
-
-	glog.V(2).Infof("======= LoadUsingAuth ========")
-
-	loadCreateHandle, _, err := tpm2.StartAuthSession(
-		rwc,
-		tpm2.HandleNull,
-		tpm2.HandleNull,
-		make([]byte, 16),
-		nil,
-		tpm2.SessionPolicy,
-		tpm2.AlgNull,
-		tpm2.AlgSHA256)
-	if err != nil {
-		glog.Fatalf("Unable to create StartAuthSession : %v", err)
-	}
-	defer tpm2.FlushContext(rwc, loadCreateHandle)
-
-	if _, err := tpm2.PolicySecret(rwc, tpm2.HandleEndorsement, tpm2.AuthCommand{Session: tpm2.HandlePasswordSession, Attributes: tpm2.AttrContinueSession}, loadCreateHandle, nil, nil, nil, 0); err != nil {
-		glog.Fatalf("Unable to create PolicySecret: %v", err)
-	}
-
-	authCommandLoad := tpm2.AuthCommand{Session: loadCreateHandle, Attributes: tpm2.AttrContinueSession}
-
-	keyHandle, keyName, err := tpm2.LoadUsingAuth(rwc, ekh, authCommandLoad, akPub, akPriv)
-	if err != nil {
-		log.Fatalf("Load failed: %s", err)
-	}
-	defer tpm2.FlushContext(rwc, keyHandle)
-	kn := hex.EncodeToString(keyName)
-	glog.V(2).Infof("ak keyName %v", kn)
-
-	glog.V(2).Infof("======= Write (akPub) ========")
-	err = ioutil.WriteFile("akPub.bin", akPub, 0644)
-	if err != nil {
-		glog.Fatalf("Save failed for akPub: %v", err)
-	}
-	glog.V(2).Infof("======= Write (akPriv) ========")
-	err = ioutil.WriteFile("akPriv.bin", akPriv, 0644)
-	if err != nil {
-		glog.Fatalf("Save failed for akPriv: %v", err)
-	}
-	return kn, nil
-}
-
-func makeCredential(pcr int, tpmPath string, sec string) (retErr error) {
-	glog.V(2).Infof("======= init MakeCredential ========")
-
-	rwc, err := tpm2.OpenTPM(tpmPath)
-	if err != nil {
-		glog.Fatalf("can't open TPM %q: %v", tpmPath, err)
-	}
 	defer func() {
-		if err := rwc.Close(); err != nil {
-			glog.Fatalf("%v\ncan't close TPM %q: %v", retErr, tpmPath, err)
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: rsaKeyResponse.ObjectHandle,
 		}
+		_, _ = flushContextCmd.Execute(rwr)
 	}()
 
-	totalHandles := 0
-	for _, handleType := range handleNames["transient"] {
-		handles, err := tpm2tools.Handles(rwc, handleType)
-		if err != nil {
-			glog.Fatalf("getting handles: %v", err)
-		}
-		for _, handle := range handles {
-			if err = tpm2.FlushContext(rwc, handle); err != nil {
-				glog.Fatalf("flushing handle 0x%x: %v", handle, err)
-			}
-			glog.V(2).Infof("Handle 0x%x flushed\n", handle)
-			totalHandles++
-		}
+	rpub, err := rsaKeyResponse.OutPublic.Contents()
+	if err != nil {
+		log.Fatalf("Failed to get rsa public: %v", err)
+	}
+	rrsaDetail, err := rpub.Parameters.RSADetail()
+	if err != nil {
+		log.Fatalf("Failed to get rsa details: %v", err)
+	}
+	rrsaUnique, err := rpub.Unique.RSA()
+	if err != nil {
+		log.Fatalf("Failed to get rsa unique: %v", err)
 	}
 
-	glog.V(2).Infof("======= Load (ekPub.bin) ========")
-	ekhBytes, err := ioutil.ReadFile("ekPub.bin")
+	rrsaPub, err := tpm2.RSAPub(rrsaDetail, rrsaUnique)
 	if err != nil {
-		glog.Fatalf("Read failed for ekPub.bin: %v", err)
-	}
-	ePub, err := tpm2.DecodePublic(ekhBytes)
-	if err != nil {
-		glog.Fatalf("Error DecodePublic AK %v", ePub)
+		log.Fatalf("Failed to get rsa public key: %v", err)
 	}
 
-	ekh, keyName, err := tpm2.LoadExternal(rwc, ePub, tpm2.Private{}, tpm2.HandleNull)
-	if err != nil {
-		glog.Fatalf("Error loadingExternal EK %v", err)
+	block = &pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: rrsaPub.N.Bytes(),
 	}
-	defer tpm2.FlushContext(rwc, ekh)
+	keyPEMByte := pem.EncodeToMemory(block)
+	log.Printf("RSA Key \n%s\n", string(keyPEMByte))
 
-	glog.V(2).Infof("======= Read (akPub) ========")
-	akPub, err := ioutil.ReadFile("akPub.bin")
-	if err != nil {
-		glog.Fatalf("Read failed for akPub: %v", err)
+	keyPublicBytes := rsaKeyResponse.OutPublic.Bytes()
+
+	rsaPubBuf := rsaKeyResponse.OutPublic.Bytes()
+	rsaPrivBuf := rsaKeyResponse.OutPrivate.Buffer
+
+	// ***** close everything
+	cleanup1()
+
+	flushContextCmdKey := tpm2.FlushContext{
+		FlushHandle: rsaKeyResponse.ObjectHandle,
 	}
-	tPub, err := tpm2.DecodePublic(akPub)
+	_, _ = flushContextCmdKey.Execute(rwr)
+	flushContextCmdPrimary := tpm2.FlushContext{
+		FlushHandle: primaryKey.ObjectHandle,
+	}
+	_, _ = flushContextCmdPrimary.Execute(rwr)
+
+	// *****************************************************
+
+	secret := tpm2.TPM2BDigest{Buffer: []byte(*secret)}
+
+	loadedPrimary, err := tpm2.LoadExternal{
+		Hierarchy: tpm2.TPMRHNull,
+		InPublic:  tpm2.BytesAs2B[tpm2.TPMTPublic](primaryKey.OutPublic.Bytes()),
+	}.Execute(rwr)
 	if err != nil {
-		glog.Fatalf("Error DecodePublic AK %v", tPub)
+		log.Fatalf("can't create makecredential %v", err)
+	}
+	log.Printf("key Primary Name: %v\n", hex.EncodeToString(loadedPrimary.Name.Buffer))
+
+	loadedKey, err := tpm2.LoadExternal{
+		Hierarchy: tpm2.TPMRHNull,
+		InPublic:  tpm2.BytesAs2B[tpm2.TPMTPublic](keyPublicBytes),
+	}.Execute(rwr)
+	if err != nil {
+		log.Fatalf("can't create makecredential %v", err)
 	}
 
-	h, keyName, err := tpm2.LoadExternal(rwc, tPub, tpm2.Private{}, tpm2.HandleNull)
+	log.Printf("key Name: %v\n", hex.EncodeToString(loadedKey.Name.Buffer))
+	mc, err := tpm2.MakeCredential{
+		Handle:      loadedPrimary.ObjectHandle,
+		Credential:  secret,
+		ObjectNamae: loadedKey.Name,
+	}.Execute(rwr)
 	if err != nil {
-		glog.Fatalf("Error loadingExternal AK %v", err)
-	}
-	defer tpm2.FlushContext(rwc, h)
-	glog.V(2).Infof(" Loaded KeyName %v", hex.EncodeToString(keyName))
-
-	glog.V(2).Infof("======= MakeCredential ========")
-	credential := []byte(sec)
-	credBlob, encryptedSecret0, err := tpm2.MakeCredential(rwc, ekh, credential, keyName)
-	if err != nil {
-		log.Fatalf("MakeCredential failed: %v", err)
-	}
-	glog.V(5).Infof("credBlob %v", hex.EncodeToString(credBlob))
-	glog.V(5).Infof("encryptedSecret0 %v", hex.EncodeToString(encryptedSecret0))
-
-	glog.V(2).Infof("======= Write (credBlob) ========")
-	err = ioutil.WriteFile("credBlob.bin", credBlob, 0644)
-	if err != nil {
-		glog.Fatalf("Write credBlob failed: %v", err)
+		log.Fatalf("can't create makecredential %v", err)
 	}
 
-	glog.V(2).Infof("======= Write (encryptedSecret0) ========")
-	err = ioutil.WriteFile("encryptedSecret0.bin", encryptedSecret0, 0644)
+	// alternatively get name from the public key
+
+	// u := tpm2.NewTPMUPublicID(
+	// 	tpm2.TPMAlgRSA,
+	// 	&tpm2.TPM2BPublicKeyRSA{
+	// 		Buffer: rrsaPub.N.Bytes(),
+	// 	},
+	// )
+
+	// keyPububFromPEMTemplate := tpm2.RSAEKTemplate
+	// keyPububFromPEMTemplate.Unique = u
+
+	// na, err := tpm2.ObjectName(&keyPububFromPEMTemplate)
+	// if err != nil {
+	// 	log.Fatalf("Failed to get name key: %v", err)
+	// }
+
+	// log.Printf("key Name: %v\n", hex.EncodeToString(na.Buffer))
+	// *************** make credential
+
+	// mc, err := tpm2.MakeCredential{
+	// 	Handle:      primaryKey.ObjectHandle,
+	// 	Credential:  secret,
+	// 	ObjectNamae: *na,
+	// }.Execute(rwr)
+	// if err != nil {
+	// 	log.Fatalf("can't create makecredential %v", err)
+	// }
+
+	// ***** close everything
+
+	flushContextCmdKey2 := tpm2.FlushContext{
+		FlushHandle: loadedKey.ObjectHandle,
+	}
+	_, _ = flushContextCmdKey2.Execute(rwr)
+	flushContextCmdPrimary2 := tpm2.FlushContext{
+		FlushHandle: loadedPrimary.ObjectHandle,
+	}
+	_, _ = flushContextCmdPrimary2.Execute(rwr)
+
+	/// ============================ =================================================================================================
+
+	log.Printf("======= Activate ========")
+
+	primaryKey2, err := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHEndorsement,
+		InPublic:      tpm2.New2B(tpm2.RSAEKTemplate),
+	}.Execute(rwr)
 	if err != nil {
-		glog.Fatalf("Write encryptedSecret0 failed: %v", err)
+		log.Fatalf("can't create primary %v", err)
 	}
 
-	return
-}
-
-func activateCredential(pcr int, tpmPath string) (retErr error) {
-	glog.V(2).Infof("======= init ActivateCredential ========")
-
-	rwc, err := tpm2.OpenTPM(tpmPath)
-	if err != nil {
-		glog.Fatalf("can't open TPM %q: %v", tpmPath, err)
-	}
 	defer func() {
-		if err := rwc.Close(); err != nil {
-			glog.Fatalf("%v\ncan't close TPM %q: %v", retErr, tpmPath, err)
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: primaryKey2.ObjectHandle,
 		}
+		_, _ = flushContextCmd.Execute(rwr)
 	}()
 
-	totalHandles := 0
-	for _, handleType := range handleNames["transient"] {
-		handles, err := tpm2tools.Handles(rwc, handleType)
-		if err != nil {
-			glog.Fatalf("getting handles: %v", err)
-		}
-		for _, handle := range handles {
-			if err = tpm2.FlushContext(rwc, handle); err != nil {
-				glog.Fatalf("flushing handle 0x%x: %v", handle, err)
-			}
-			glog.V(2).Infof("Handle 0x%x flushed\n", handle)
-			totalHandles++
-		}
-	}
-
-	glog.V(2).Infof("======= ContextLoad (ek) ========")
-	ekhBytes, err := ioutil.ReadFile("ek.bin")
+	loadedKey2, err := tpm2.Load{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: primaryKey2.ObjectHandle,
+			Name:   primaryKey2.Name,
+			Auth:   tpm2.Policy(tpm2.TPMAlgSHA256, 16, ekPolicy),
+		},
+		InPublic: tpm2.BytesAs2B[tpm2.TPMTPublic](rsaPubBuf),
+		InPrivate: tpm2.TPM2BPrivate{
+			Buffer: rsaPrivBuf,
+		},
+	}.Execute(rwr)
 	if err != nil {
-		glog.Fatalf("ContextLoad failed for ekh: %v", err)
+		log.Fatalf("can't load key2 %v", err)
 	}
-	ekh, err := tpm2.ContextLoad(rwc, ekhBytes)
+	log.Printf("key Primary Name: %v\n", hex.EncodeToString(loadedKey2.Name.Buffer))
+
+	// sess2, cleanup2, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16)
+	// if err != nil {
+	// 	log.Fatalf("setting up trial session: %v", err)
+	// }
+	// defer func() {
+	// 	if err := cleanup2(); err != nil {
+	// 		log.Fatalf("cleaning up trial session: %v", err)
+	// 	}
+	// }()
+
+	// _, err = tpm2.PolicySecret{
+	// 	AuthHandle:    tpm2.TPMRHEndorsement,
+	// 	NonceTPM:      sess2.NonceTPM(),
+	// 	PolicySession: sess2.Handle(),
+	// }.Execute(rwr)
+	// if err != nil {
+	// 	log.Fatalf("error executing PolicySecret: %v", err)
+	// }
+
+	acRsp, err := tpm2.ActivateCredential{
+		ActivateHandle: tpm2.NamedHandle{
+			Handle: loadedKey2.ObjectHandle,
+			Name:   loadedKey2.Name,
+		},
+		KeyHandle: tpm2.AuthHandle{
+			Handle: primaryKey2.ObjectHandle,
+			Name:   primaryKey2.Name,
+			Auth:   tpm2.Policy(tpm2.TPMAlgSHA256, 16, ekPolicy), // sess2
+		},
+		CredentialBlob: mc.CredentialBlob,
+		Secret:         mc.Secret,
+	}.Execute(rwr)
 	if err != nil {
-		glog.Fatalf("ContextLoad failed for ekh: %v", err)
+		log.Fatalf("can't create activate %v", err)
 	}
 
-	glog.V(2).Infof("======= Read (akPub) ========")
-	akPub, err := ioutil.ReadFile("akPub.bin")
-	if err != nil {
-		glog.Fatalf("Read failed for akPub: %v", err)
-	}
-	glog.V(2).Infof("======= Read (akPriv) ========")
-	akPriv, err := ioutil.ReadFile("akPriv.bin")
-	if err != nil {
-		glog.Fatalf("Read failed for akPriv: %v", err)
+	if !bytes.Equal(acRsp.CertInfo.Buffer, secret.Buffer) {
+		log.Fatalf("want %x got %x", secret.Buffer, acRsp.CertInfo.Buffer)
 	}
 
-	glog.V(2).Infof("======= Read (credBlob) ========")
-	credBlob, err := ioutil.ReadFile("credBlob.bin")
-	if err != nil {
-		glog.Fatalf("Read failed for credBlob: %v", err)
+}
+
+func ekPolicy(t transport.TPM, handle tpm2.TPMISHPolicy, nonceTPM tpm2.TPM2BNonce) error {
+	cmd := tpm2.PolicySecret{
+		AuthHandle:    tpm2.TPMRHEndorsement,
+		PolicySession: handle,
+		NonceTPM:      nonceTPM,
 	}
-	glog.V(2).Infof("======= Read (encryptedSecret0) ========")
-	encryptedSecret0, err := ioutil.ReadFile("encryptedSecret0.bin")
-	if err != nil {
-		glog.Fatalf("Read failed for encryptedSecret0: %v", err)
-	}
-
-	glog.V(2).Infof("======= LoadUsingAuth ========")
-
-	loadCreateHandle, _, err := tpm2.StartAuthSession(
-		rwc,
-		tpm2.HandleNull,
-		tpm2.HandleNull,
-		make([]byte, 16),
-		nil,
-		tpm2.SessionPolicy,
-		tpm2.AlgNull,
-		tpm2.AlgSHA256)
-	if err != nil {
-		glog.Fatalf("Unable to create StartAuthSession : %v", err)
-	}
-	defer tpm2.FlushContext(rwc, loadCreateHandle)
-
-	if _, err := tpm2.PolicySecret(rwc, tpm2.HandleEndorsement, tpm2.AuthCommand{Session: tpm2.HandlePasswordSession, Attributes: tpm2.AttrContinueSession}, loadCreateHandle, nil, nil, nil, 0); err != nil {
-		glog.Fatalf("Unable to create PolicySecret: %v", err)
-	}
-
-	authCommandLoad := tpm2.AuthCommand{Session: loadCreateHandle, Attributes: tpm2.AttrContinueSession}
-
-	keyHandle, keyName, err := tpm2.LoadUsingAuth(rwc, ekh, authCommandLoad, akPub, akPriv)
-	if err != nil {
-		log.Fatalf("Load failed: %s", err)
-	}
-	defer tpm2.FlushContext(rwc, keyHandle)
-	glog.V(2).Infof("keyName %v", hex.EncodeToString(keyName))
-
-	glog.V(2).Infof("======= ActivateCredentialUsingAuth ========")
-
-	sessActivateCredentialSessHandle1, _, err := tpm2.StartAuthSession(
-		rwc,
-		tpm2.HandleNull,
-		tpm2.HandleNull,
-		make([]byte, 16),
-		nil,
-		tpm2.SessionPolicy,
-		tpm2.AlgNull,
-		tpm2.AlgSHA256)
-	if err != nil {
-		glog.Fatalf("Unable to create StartAuthSession : %v", err)
-	}
-	defer tpm2.FlushContext(rwc, sessActivateCredentialSessHandle1)
-
-	if _, err := tpm2.PolicySecret(rwc, tpm2.HandleEndorsement, tpm2.AuthCommand{Session: tpm2.HandlePasswordSession, Attributes: tpm2.AttrContinueSession}, sessActivateCredentialSessHandle1, nil, nil, nil, 0); err != nil {
-		glog.Fatalf("Unable to create PolicySecret: %v", err)
-	}
-
-	authCommandActivate1 := tpm2.AuthCommand{Session: tpm2.HandlePasswordSession, Attributes: tpm2.AttrContinueSession}
-
-	sessActivateCredentialSessHandle2, _, err := tpm2.StartAuthSession(
-		rwc,
-		tpm2.HandleNull,
-		tpm2.HandleNull,
-		make([]byte, 16),
-		nil,
-		tpm2.SessionPolicy,
-		tpm2.AlgNull,
-		tpm2.AlgSHA256)
-	if err != nil {
-		glog.Fatalf("Unable to create StartAuthSession : %v", err)
-	}
-	defer tpm2.FlushContext(rwc, sessActivateCredentialSessHandle2)
-
-	if _, err := tpm2.PolicySecret(rwc, tpm2.HandleEndorsement, tpm2.AuthCommand{Session: tpm2.HandlePasswordSession, Attributes: tpm2.AttrContinueSession}, sessActivateCredentialSessHandle2, nil, nil, nil, 0); err != nil {
-		glog.Fatalf("Unable to create PolicySecret: %v", err)
-	}
-
-	authCommandActivate2 := tpm2.AuthCommand{Session: sessActivateCredentialSessHandle2, Attributes: tpm2.AttrContinueSession}
-
-	tl := []tpm2.AuthCommand{authCommandActivate1, authCommandActivate2}
-
-	recoveredCredential1, err := tpm2.ActivateCredentialUsingAuth(rwc, tl, keyHandle, ekh, credBlob, encryptedSecret0)
-	if err != nil {
-		glog.Fatalf("ActivateCredential failed: %v", err)
-	}
-	glog.V(2).Infof("recoveredCredential1 %v", string(recoveredCredential1))
-	return
+	_, err := cmd.Execute(t)
+	return err
 }

@@ -4,8 +4,9 @@
 ### create rsa key 
 
 ```bash
-openssl genrsa -out private.pem 2048
-openssl rsa -in private.pem -outform PEM -pubout -out public.pem
+
+openssl genpkey -algorithm rsa -pkeyopt rsa_keygen_bits:2048 -pkeyopt rsa_keygen_pubexp:65537 -out private.pem
+
 ```
 
 ## using tpm2_tools
@@ -33,59 +34,11 @@ tpm2_evictcontrol -C o -c 0x81010002
 ```bash
 $ go run importExternalRSA.go --mode=create --keyPub key.pub --keyPriv=key.priv --pemFile=private.pem --handle=0x81010002
 
-  2023/09/04 14:29:19 ======= Flushing Transient Handles ========
-  2023/09/04 14:29:19     0 handles flushed
-  2023/09/04 14:29:19     Primary KeySize 256
-  2023/09/04 14:29:19      tpmPub Size(): 256
-  2023/09/04 14:29:19      Pub Name: 000bb902b761b853873f822265820736416f20d6c0259d21779496cb568cf0ba1a4b
-  2023/09/04 14:29:19      PubPEM: 
-  -----BEGIN PUBLIC KEY-----
-  MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyYGt/zWkgxIbMjRQ1iCe
-  xnNOIDm8aBkQuse6PLEGrGXR4Adud9xhUsDbZdR50hg9G+K9QHpRmprhm0wl/S29
-  vD7/7KZn1CLJUT8Gwmkzt8MnCMiydEv6KLoyDALoXTZG42/zn2gfXff4g6IYQtE7
-  w6cK/SDDEVR8V664VaYhanqKz0qws5/SpOTjXzExh5kWCyPd2Pwo1Ca8lSXQeg/1
-  79u9AeYQgvqF3k2aA/sE45i3MllzL18aHYyrh4PbWl2jPRgjDc4AiVC0MOcWw8hR
-  Uz/mrsbHxzQMc5QooHm02BlW2FhDqxaeJ9k/yFN9/8eNaqxF65PaMbQBRZue4rg+
-  wQIDAQAB
-  -----END PUBLIC KEY-----
-  2023/09/04 14:29:19 ======= Import ======= 
-  2023/09/04 14:29:19 ======= Init ========
-  2023/09/04 14:29:19      Imported Public digestValue: 2a9a6a1e020c3aca8ce51c497fdb385d2acf5ba48247765c4351b5852daf859f
-  2023/09/04 14:29:19      Loaded Import Blob transient handle [0x80000001], Name: 0022000b2a9a6a1e020c3aca8ce51c497fdb385d2acf5ba48247765c4351b5852daf859f
-  2023/09/04 14:29:19      SavePub (key.pub) ========
-  2023/09/04 14:29:19      SavePriv (key.priv) ========
-  2023/09/04 14:29:19      key persisted
-  2023/09/04 14:29:19      LoadkeyPub (key.pub) ========
-  2023/09/04 14:29:19      LoadkeyPriv (key.priv) ========
-  2023/09/04 14:29:19      Loaded Import Blob transient handle [0x80000001], Name: 0022000b2a9a6a1e020c3aca8ce51c497fdb385d2acf5ba48247765c4351b5852daf859f
-  2023/09/04 14:29:19 Signature data:  Sp810z...
+
 ```
 
 
 
-```bash
-$ go run importExternalRSA.go --mode=load --keyPub key.pub --keyPriv=key.priv
-
-  2023/09/04 14:30:45 ======= Flushing Transient Handles ========
-  2023/09/04 14:30:45     0 handles flushed
-  2023/09/04 14:30:45     Primary KeySize 256
-  2023/09/04 14:30:45      tpmPub Size(): 256
-  2023/09/04 14:30:45      Pub Name: 000bb902b761b853873f822265820736416f20d6c0259d21779496cb568cf0ba1a4b
-  2023/09/04 14:30:45      PubPEM: 
-  -----BEGIN PUBLIC KEY-----
-  MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyYGt/zWkgxIbMjRQ1iCe
-  xnNOIDm8aBkQuse6PLEGrGXR4Adud9xhUsDbZdR50hg9G+K9QHpRmprhm0wl/S29
-  vD7/7KZn1CLJUT8Gwmkzt8MnCMiydEv6KLoyDALoXTZG42/zn2gfXff4g6IYQtE7
-  w6cK/SDDEVR8V664VaYhanqKz0qws5/SpOTjXzExh5kWCyPd2Pwo1Ca8lSXQeg/1
-  79u9AeYQgvqF3k2aA/sE45i3MllzL18aHYyrh4PbWl2jPRgjDc4AiVC0MOcWw8hR
-  Uz/mrsbHxzQMc5QooHm02BlW2FhDqxaeJ9k/yFN9/8eNaqxF65PaMbQBRZue4rg+
-  wQIDAQAB
-  -----END PUBLIC KEY-----
-  2023/09/04 14:30:45      LoadkeyPub (key.pub) ========
-  2023/09/04 14:30:45      LoadkeyPriv (key.priv) ========
-  2023/09/04 14:30:45      Loaded Import Blob transient handle [0x80000001], Name: 0022000b2a9a6a1e020c3aca8ce51c497fdb385d2acf5ba48247765c4351b5852daf859f
-  2023/09/04 14:30:45 Signature data:  Sp810z
-```
 
 ---
 

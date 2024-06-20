@@ -15,7 +15,7 @@ tpm2_verifysignature -c key.ctx -g sha256 -s sig.rssa -m message.dat
 
 ---
 
-```
+```bash
 # go run svcaccount/main.go 
 ======= Key persisted ========
 ======= Sign with new RSA ========

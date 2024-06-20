@@ -1,327 +1,391 @@
 package main
 
 import (
-	"bytes"
-	"encoding/base64"
+	"crypto/aes"
+	"crypto/rand"
+	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"os"
+	"slices"
 
-	"github.com/google/go-tpm-tools/client"
-	"github.com/google/go-tpm/legacy/tpm2"
+	"github.com/google/go-tpm-tools/simulator"
+	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/tpm2/transport"
+	"github.com/google/go-tpm/tpmutil"
 )
 
-const (
-	emptyPassword   = ""
-	defaultPassword = ""
-
-	rootP = ""
-
-	parentP     = "foo"
-	childP      = "bar"
-	grandchildP = "qux"
-
-	cPub          = "childPub.bin"
-	cPriv         = "childPriv.bin"
-	gPub          = "grandchildPub.bin"
-	gPriv         = "grandchildPriv.bin"
-	encryptedData = "encrypteddata.bin"
-)
+const ()
 
 var (
-	tpmPath = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
-
-	mode  = flag.String("mode", "create", "import or create or load")
-	flush = flag.String("flush", "all", "Flush handles to HMAC")
-
-	dataToSign = []byte("secret")
-
-	handleNames = map[string][]tpm2.HandleType{
-		"all":       {tpm2.HandleTypeLoadedSession, tpm2.HandleTypeSavedSession, tpm2.HandleTypeTransient},
-		"loaded":    {tpm2.HandleTypeLoadedSession},
-		"saved":     {tpm2.HandleTypeSavedSession},
-		"transient": {tpm2.HandleTypeTransient},
+	//tpmPath = flag.String("tpm-path", "127.0.0.1:2321", "Path to the TPM device (character device or a Unix socket).")
+	tpmPath        = flag.String("tpm-path", "simulator", "Path to the TPM device (character device or a Unix socket).")
+	mode           = flag.String("mode", "create", "import or create or load")
+	childTepmplate = tpm2.TPMTPublic{
+		Type:    tpm2.TPMAlgSymCipher,
+		NameAlg: tpm2.TPMAlgSHA256,
+		ObjectAttributes: tpm2.TPMAObject{
+			FixedTPM:            true,
+			FixedParent:         true,
+			UserWithAuth:        true,
+			SensitiveDataOrigin: true,
+			Decrypt:             true,
+			Restricted:          true,
+		},
+		Parameters: tpm2.NewTPMUPublicParms(
+			tpm2.TPMAlgSymCipher,
+			&tpm2.TPMSSymCipherParms{
+				Sym: tpm2.TPMTSymDefObject{
+					Algorithm: tpm2.TPMAlgAES,
+					Mode:      tpm2.NewTPMUSymMode(tpm2.TPMAlgAES, tpm2.TPMAlgCFB),
+					KeyBits: tpm2.NewTPMUSymKeyBits(
+						tpm2.TPMAlgAES,
+						tpm2.TPMKeyBits(128),
+					),
+				},
+			},
+		),
 	}
 
-	primaryTemplate = tpm2.Public{
-		Type:    tpm2.AlgRSA,
-		NameAlg: tpm2.AlgSHA256,
-		Attributes: tpm2.FlagDecrypt | tpm2.FlagRestricted | tpm2.FlagFixedTPM |
-			tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin | tpm2.FlagUserWithAuth,
-		AuthPolicy: []byte(defaultPassword),
-		RSAParameters: &tpm2.RSAParams{
-			Symmetric: &tpm2.SymScheme{
-				Alg:     tpm2.AlgAES,
-				KeyBits: 128,
-				Mode:    tpm2.AlgCFB,
-			},
-			KeyBits: 2048,
+	grandchildTepmplate = tpm2.TPMTPublic{
+		Type:    tpm2.TPMAlgSymCipher,
+		NameAlg: tpm2.TPMAlgSHA256,
+		ObjectAttributes: tpm2.TPMAObject{
+			FixedTPM:            true,
+			FixedParent:         true,
+			UserWithAuth:        true,
+			SensitiveDataOrigin: true,
+			Decrypt:             true,
+			SignEncrypt:         true,
 		},
-	}
-
-	childTepmplate = tpm2.Public{
-		Type:    tpm2.AlgRSA,
-		NameAlg: tpm2.AlgSHA256,
-		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
-			tpm2.FlagUserWithAuth | tpm2.FlagDecrypt | tpm2.FlagRestricted,
-		AuthPolicy: []byte{},
-		RSAParameters: &tpm2.RSAParams{
-			Symmetric: &tpm2.SymScheme{
-				Alg:     tpm2.AlgAES,
-				KeyBits: 128,
-				Mode:    tpm2.AlgCFB,
+		Parameters: tpm2.NewTPMUPublicParms(
+			tpm2.TPMAlgSymCipher,
+			&tpm2.TPMSSymCipherParms{
+				Sym: tpm2.TPMTSymDefObject{
+					Algorithm: tpm2.TPMAlgAES,
+					Mode:      tpm2.NewTPMUSymMode(tpm2.TPMAlgAES, tpm2.TPMAlgCFB),
+					KeyBits: tpm2.NewTPMUSymKeyBits(
+						tpm2.TPMAlgAES,
+						tpm2.TPMKeyBits(128),
+					),
+				},
 			},
-			KeyBits: 2048,
-		},
-	}
-
-	grandchildTemplate = tpm2.Public{
-		Type:    tpm2.AlgSymCipher,
-		NameAlg: tpm2.AlgSHA256,
-		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
-			tpm2.FlagUserWithAuth | tpm2.FlagSign | tpm2.FlagDecrypt,
-		AuthPolicy: []byte{},
-		SymCipherParameters: &tpm2.SymCipherParams{
-			Symmetric: &tpm2.SymScheme{
-				Alg:     tpm2.AlgAES,
-				KeyBits: 128,
-				Mode:    tpm2.AlgCFB,
-			},
-		},
-	}
-
-	// for RSA keys
-	grandchildTemplateRSA = tpm2.Public{
-		Type:    tpm2.AlgRSA,
-		NameAlg: tpm2.AlgSHA256,
-		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
-			tpm2.FlagUserWithAuth | tpm2.FlagSign,
-		AuthPolicy: []byte{},
-		RSAParameters: &tpm2.RSAParams{
-			Sign: &tpm2.SigScheme{
-				Alg:  tpm2.AlgRSASSA,
-				Hash: tpm2.AlgSHA256,
-			},
-			KeyBits: 2048,
-		},
+		),
 	}
 )
+
+var TPMDEVICES = []string{"/dev/tpm0", "/dev/tpmrm0"}
+
+func OpenTPM(path string) (io.ReadWriteCloser, error) {
+	if slices.Contains(TPMDEVICES, path) {
+		return tpmutil.OpenTPM(path)
+	} else if path == "simulator" {
+		return simulator.GetWithFixedSeedInsecure(1073741825)
+	} else {
+		return net.Dial("tcp", path)
+	}
+}
 
 func main() {
 
 	flag.Parse()
 
-	data := []byte("foooo")
-	iv := bytes.Repeat([]byte("a"), 16)
-
-	rwc, err := tpm2.OpenTPM(*tpmPath)
+	rwc, err := OpenTPM(*tpmPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Can't open TPM %s: %v", *tpmPath, err)
-		os.Exit(1)
+		log.Fatalf("can't open TPM %q: %v", *tpmPath, err)
 	}
 	defer func() {
 		if err := rwc.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "can't close TPM %s: %v", *tpmPath, err)
-			os.Exit(1)
+			log.Fatalf("can't close TPM %q: %v", *tpmPath, err)
 		}
 	}()
 
-	totalHandles := 0
-	for _, handleType := range handleNames[*flush] {
-		handles, err := client.Handles(rwc, handleType)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error getting handles", *tpmPath, err)
-			os.Exit(1)
-		}
-		for _, handle := range handles {
-			if err = tpm2.FlushContext(rwc, handle); err != nil {
-				fmt.Fprintf(os.Stderr, "Error flushing handle 0x%x: %v\n", handle, err)
-				os.Exit(1)
-			}
-			fmt.Printf("Handle 0x%x flushed\n", handle)
-			totalHandles++
-		}
-	}
-
-	pcrSelection := tpm2.PCRSelection{}
+	rwr := transport.FromReadWriter(rwc)
 
 	if *mode == "create" {
-		fmt.Printf("======= CreatePrimary ========\n")
-		pkh, _, err := tpm2.CreatePrimary(rwc, tpm2.HandleOwner, pcrSelection, rootP, parentP, primaryTemplate)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating Primary %v\n", err)
-			os.Exit(1)
-		}
-		defer tpm2.FlushContext(rwc, pkh)
 
-		fmt.Printf("======= Create Child ========\n")
-		childpriv, childpub, _, _, _, err := tpm2.CreateKey(rwc, pkh, pcrSelection, parentP, childP, childTepmplate)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error  CreateKey %v\n", err)
-			os.Exit(1)
-		}
-		childHandle, _, err := tpm2.Load(rwc, pkh, parentP, childpub, childpriv)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error  loading  key1 %v\n", err)
-			os.Exit(1)
-		}
-		defer tpm2.FlushContext(rwc, childHandle)
+		log.Printf("======= createPrimary ========")
 
-		err = os.WriteFile(cPub, childpub, 0644)
+		cmdPrimary := tpm2.CreatePrimary{
+			PrimaryHandle: tpm2.TPMRHOwner,
+			InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
+		}
+		if err != nil {
+			log.Fatalf("Error creating primary: %v", err)
+		}
+
+		cPrimary, err := cmdPrimary.Execute(rwr)
+		if err != nil {
+			log.Fatalf("can't create primary TPM %q: %v", *tpmPath, err)
+		}
+
+		defer func() {
+			flush := tpm2.FlushContext{
+				FlushHandle: cPrimary.ObjectHandle,
+			}
+			_, err = flush.Execute(rwr)
+		}()
+
+		log.Printf("======= create child ========")
+		cCreate, err := tpm2.Create{
+			ParentHandle: tpm2.NamedHandle{
+				Handle: cPrimary.ObjectHandle,
+				Name:   cPrimary.Name,
+			},
+			InPublic: tpm2.New2B(childTepmplate),
+		}.Execute(rwr)
+		if err != nil {
+			log.Fatalf("can't create object TPM %q: %v", *tpmPath, err)
+		}
+
+		err = os.WriteFile("child.pub", cCreate.OutPublic.Bytes(), 0644)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "childPub failed for childFile%v\n", err)
 			os.Exit(1)
 		}
-		err = os.WriteFile(cPriv, childpriv, 0644)
+		err = os.WriteFile("child.priv", cCreate.OutPrivate.Buffer, 0644)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "childriv failed for childFile%v\n", err)
 			os.Exit(1)
 		}
 
-		fmt.Printf("======= Create GrandChild ========\n")
-
-		grandchildpriv, grandchildpub, _, _, _, err := tpm2.CreateKey(rwc, childHandle, pcrSelection, childP, grandchildP, grandchildTemplate)
+		aesKey1, err := tpm2.Load{
+			ParentHandle: tpm2.NamedHandle{
+				Handle: cPrimary.ObjectHandle,
+				Name:   cPrimary.Name,
+			},
+			InPrivate: cCreate.OutPrivate,
+			InPublic:  cCreate.OutPublic,
+		}.Execute(rwr)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error  CreateKey %v\n", err)
-			os.Exit(1)
-		}
-		grandchildHandle, _, err := tpm2.Load(rwc, childHandle, childP, grandchildpub, grandchildpriv)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error  loading  key %v\n", err)
-			os.Exit(1)
-		}
-		defer tpm2.FlushContext(rwc, grandchildHandle)
-
-		err = os.WriteFile(gPub, grandchildpub, 0644)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "grandchildpub failed for childFile%v\n", err)
-			os.Exit(1)
-		}
-		err = os.WriteFile(gPriv, grandchildpriv, 0644)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "grandchildpriv failed for childFile%v\n", err)
-			os.Exit(1)
+			log.Fatalf("can't load object %q: %v", *tpmPath, err)
 		}
 
-		// fmt.Printf("======= Encrypt with GrandChild ========\n")
+		defer func() {
+			flushContextCmd := tpm2.FlushContext{
+				FlushHandle: aesKey1.ObjectHandle,
+			}
+			_, err = flushContextCmd.Execute(rwr)
+		}()
 
-		encrypted, err := tpm2.EncryptSymmetric(rwc, grandchildP, grandchildHandle, iv, data)
+		log.Printf("======= create grandchild ========")
+		gcCreate, err := tpm2.Create{
+			ParentHandle: tpm2.NamedHandle{
+				Handle: aesKey1.ObjectHandle,
+				Name:   aesKey1.Name,
+			},
+			InPublic: tpm2.New2B(grandchildTepmplate),
+		}.Execute(rwr)
+		if err != nil {
+			log.Fatalf("can't create object TPM %q: %v", *tpmPath, err)
+		}
+
+		err = os.WriteFile("grandchild.pub", gcCreate.OutPublic.Bytes(), 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "childPub failed for childFile%v\n", err)
+			os.Exit(1)
+		}
+		err = os.WriteFile("grandchild.priv", gcCreate.OutPrivate.Buffer, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "childriv failed for childFile%v\n", err)
+			os.Exit(1)
+		}
+
+		gcaesKey, err := tpm2.Load{
+			ParentHandle: tpm2.NamedHandle{
+				Handle: aesKey1.ObjectHandle,
+				Name:   aesKey1.Name,
+			},
+			InPrivate: gcCreate.OutPrivate,
+			InPublic:  gcCreate.OutPublic,
+		}.Execute(rwr)
+		if err != nil {
+			log.Fatalf("can't load object %q: %v", *tpmPath, err)
+		}
+
+		defer func() {
+			flushContextCmd := tpm2.FlushContext{
+				FlushHandle: gcaesKey.ObjectHandle,
+			}
+			_, err = flushContextCmd.Execute(rwr)
+		}()
+
+		data := []byte("foooo")
+
+		iv := make([]byte, aes.BlockSize)
+		_, err = io.ReadFull(rand.Reader, iv)
+		if err != nil {
+			log.Fatalf("can't read rsa details %q: %v", *tpmPath, err)
+		}
+
+		keyAuth := tpm2.AuthHandle{
+			Handle: gcaesKey.ObjectHandle,
+			Name:   gcaesKey.Name,
+			Auth:   tpm2.PasswordAuth([]byte("")),
+		}
+		encrypted, err := encryptDecryptSymmetric(rwr, keyAuth, iv, data, false)
+
 		if err != nil {
 			log.Fatalf("EncryptSymmetric failed: %s", err)
 		}
-		log.Printf("Encrypted %s", base64.StdEncoding.EncodeToString(encrypted))
+		log.Printf("IV: %s", hex.EncodeToString(iv))
+		log.Printf("Encrypted %s", hex.EncodeToString(encrypted))
 
-		err = os.WriteFile(encryptedData, encrypted, 0644)
+		decrypted, err := encryptDecryptSymmetric(rwr, keyAuth, iv, encrypted, true)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "grandchildpriv failed for childFile%v\n", err)
-			os.Exit(1)
+			log.Fatalf("EncryptSymmetric failed: %s", err)
 		}
 
-		decrypted, err := tpm2.DecryptSymmetric(rwc, grandchildP, grandchildHandle, iv, encrypted)
-		if err != nil {
-			log.Fatalf("DecryptSymmetric failed: %s", err)
-		}
-
-		log.Printf("decrypted %s\n", decrypted)
-
-		// fmt.Printf("======= RSA ========\n")
-		// for RSA grandchild
-		// khDigest, khValidation, err := tpm2.Hash(rwc, tpm2.AlgSHA256, dataToSign, tpm2.HandleOwner)
-		// if err != nil {
-		// 	log.Fatalf("Hash failed unexpectedly: %v", err)
-		// 	return
-		// }
-
-		// sig, err := tpm2.Sign(rwc, grandchildHandle, grandchildP, khDigest[:], khValidation, &tpm2.SigScheme{
-		// 	Alg:  tpm2.AlgRSASSA,
-		// 	Hash: tpm2.AlgSHA256,
-		// })
-		// if err != nil {
-		// 	log.Fatalf("Error Signing: %v", err)
-		// }
-
-		// log.Printf("Signature data:  %s", base64.RawStdEncoding.EncodeToString([]byte(sig.RSA.Signature)))
+		log.Printf("Decrypted %s", string(decrypted))
 
 	}
-
 	if *mode == "load" {
-		fmt.Printf("======= LoadPrimary ========\n")
 
-		pkh, _, err := tpm2.CreatePrimary(rwc, tpm2.HandleOwner, pcrSelection, rootP, parentP, primaryTemplate)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating Primary %v\n", err)
-			os.Exit(1)
+		log.Printf("======= createPrimary ========")
+
+		cmdPrimary := tpm2.CreatePrimary{
+			PrimaryHandle: tpm2.TPMRHOwner,
+			InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
 		}
-		defer tpm2.FlushContext(rwc, pkh)
-
-		fmt.Printf("======= LoadChild ========\n")
-
-		childpub, err := os.ReadFile(cPub)
 		if err != nil {
-			log.Fatalf("unable to read file: %v", err)
-		}
-		childpriv, err := os.ReadFile(cPriv)
-		if err != nil {
-			log.Fatalf("unable to read file: %v", err)
+			log.Fatalf("Error creating primary: %v", err)
 		}
 
-		childHandle, _, err := tpm2.Load(rwc, pkh, parentP, childpub, childpriv)
+		cPrimary, err := cmdPrimary.Execute(rwr)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error  loading  key %v\n", err)
-			os.Exit(1)
+			log.Fatalf("can't create primary TPM %q: %v", *tpmPath, err)
 		}
-		defer tpm2.FlushContext(rwc, childHandle)
-		fmt.Printf("======= LoadGrandChild ========\n")
 
-		grandchildpub, err := os.ReadFile(gPub)
+		defer func() {
+			flush := tpm2.FlushContext{
+				FlushHandle: cPrimary.ObjectHandle,
+			}
+			_, err = flush.Execute(rwr)
+		}()
+
+		childpub, err := os.ReadFile("child.pub")
 		if err != nil {
 			log.Fatalf("unable to read file: %v", err)
 		}
-		grandchildpriv, err := os.ReadFile(gPriv)
+		childpriv, err := os.ReadFile("child.priv")
 		if err != nil {
 			log.Fatalf("unable to read file: %v", err)
 		}
 
-		gcH, _, err := tpm2.Load(rwc, childHandle, childP, grandchildpub, grandchildpriv)
+		grandchildpub, err := os.ReadFile("grandchild.pub")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error  loading  key %v\n", err)
-			os.Exit(1)
+			log.Fatalf("unable to read file: %v", err)
 		}
-
-		defer tpm2.FlushContext(rwc, gcH)
-
-		fmt.Printf("======= Decrypt ========\n")
-
-		encrypted, err := os.ReadFile(encryptedData)
+		grandchildpriv, err := os.ReadFile("grandchild.priv")
 		if err != nil {
 			log.Fatalf("unable to read file: %v", err)
 		}
 
-		decrypted, err := tpm2.DecryptSymmetric(rwc, grandchildP, gcH, iv, encrypted)
+		aesKey1, err := tpm2.Load{
+			ParentHandle: tpm2.NamedHandle{
+				Handle: cPrimary.ObjectHandle,
+				Name:   cPrimary.Name,
+			},
+			InPrivate: tpm2.TPM2BPrivate{
+				Buffer: childpriv,
+			},
+			InPublic: tpm2.BytesAs2B[tpm2.TPMTPublic](childpub),
+		}.Execute(rwr)
 		if err != nil {
-			log.Fatalf("DecryptSymmetric failed: %s", err)
+			log.Fatalf("can't load object %q: %v", *tpmPath, err)
 		}
 
-		log.Printf("decrypted %s\n", decrypted)
+		defer func() {
+			flushContextCmd := tpm2.FlushContext{
+				FlushHandle: aesKey1.ObjectHandle,
+			}
+			_, err = flushContextCmd.Execute(rwr)
+		}()
 
-		// fmt.Printf("======= Sign ========\n")
-		// for RSA key using go-tpm-tools
-		/// init Key
+		gcaesKey, err := tpm2.Load{
+			ParentHandle: tpm2.NamedHandle{
+				Handle: aesKey1.ObjectHandle,
+				Name:   aesKey1.Name,
+			},
+			InPrivate: tpm2.TPM2BPrivate{
+				Buffer: grandchildpriv,
+			},
+			InPublic: tpm2.BytesAs2B[tpm2.TPMTPublic](grandchildpub),
+		}.Execute(rwr)
+		if err != nil {
+			log.Fatalf("can't load object %q: %v", *tpmPath, err)
+		}
 
-		// kk, err := client.NewCachedKey(rwc, tpm2.HandleOwner, grandchildTemplate, gcH)
-		// if err != nil {
-		// 	fmt.Fprintf(os.Stderr, "can't load cached key %q: %v", *tpmPath, err)
-		// 	os.Exit(1)
-		// }
-		// s, err := kk.SignData(dataToSign)
-		// if err != nil {
-		// 	fmt.Fprintf(os.Stderr, "can't seal %q: %v", *tpmPath, err)
-		// 	os.Exit(1)
-		// }
+		defer func() {
+			flushContextCmd := tpm2.FlushContext{
+				FlushHandle: gcaesKey.ObjectHandle,
+			}
+			_, err = flushContextCmd.Execute(rwr)
+		}()
 
-		// log.Printf("Signature data:  %s", base64.RawStdEncoding.EncodeToString(s))
+		data := []byte("foooo")
+
+		iv := make([]byte, aes.BlockSize)
+		_, err = io.ReadFull(rand.Reader, iv)
+		if err != nil {
+			log.Fatalf("can't read rsa details %q: %v", *tpmPath, err)
+		}
+
+		keyAuth := tpm2.AuthHandle{
+			Handle: gcaesKey.ObjectHandle,
+			Name:   gcaesKey.Name,
+			Auth:   tpm2.PasswordAuth([]byte("")),
+		}
+		encrypted, err := encryptDecryptSymmetric(rwr, keyAuth, iv, data, false)
+
+		if err != nil {
+			log.Fatalf("EncryptSymmetric failed: %s", err)
+		}
+		log.Printf("IV: %s", hex.EncodeToString(iv))
+		log.Printf("Encrypted %s", hex.EncodeToString(encrypted))
+
+		decrypted, err := encryptDecryptSymmetric(rwr, keyAuth, iv, encrypted, true)
+		if err != nil {
+			log.Fatalf("EncryptSymmetric failed: %s", err)
+		}
+
+		log.Printf("Decrypted %s", string(decrypted))
 
 	}
 
+}
+
+const maxDigestBuffer = 1024
+
+func encryptDecryptSymmetric(rwr transport.TPM, keyAuth tpm2.AuthHandle, iv, data []byte, decrypt bool) ([]byte, error) {
+	var out, block []byte
+
+	for rest := data; len(rest) > 0; {
+		if len(rest) > maxDigestBuffer {
+			block, rest = rest[:maxDigestBuffer], rest[maxDigestBuffer:]
+		} else {
+			block, rest = rest, nil
+		}
+		r, err := tpm2.EncryptDecrypt2{
+			KeyHandle: keyAuth,
+			Message: tpm2.TPM2BMaxBuffer{
+				Buffer: block,
+			},
+			Mode:    tpm2.TPMAlgCFB,
+			Decrypt: decrypt,
+			IV: tpm2.TPM2BIV{
+				Buffer: iv,
+			},
+		}.Execute(rwr)
+		if err != nil {
+			return nil, err
+		}
+		block = r.OutData.Buffer
+		iv = r.IV.Buffer
+		out = append(out, block...)
+	}
+	return out, nil
 }

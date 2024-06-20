@@ -3,227 +3,199 @@ package main
 import (
 	"crypto"
 	"crypto/rsa"
-	"crypto/x509"
+	"crypto/sha256"
 	"encoding/base64"
-	"encoding/pem"
+	"encoding/hex"
 	"flag"
-	"fmt"
-	"io/ioutil"
-	"os"
+	"io"
+	"log"
+	"net"
+	"slices"
 
-	"github.com/google/go-tpm-tools/client"
-	//"github.com/google/go-tpm/tpm2"
-	"github.com/google/go-tpm/legacy/tpm2"
+	"github.com/google/go-tpm-tools/simulator"
+	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/tpm2/transport"
+	"github.com/google/go-tpm/tpmutil"
 )
 
-const (
-	emptyPassword   = ""
-	defaultPassword = ""
-)
+const ()
 
 var (
-	tpmPath       = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
-	primaryHandle = flag.String("primaryHandle", "primary.bin", "Handle to the primary")
-	keyHandle     = flag.String("keyHandle", "key.bin", "Handle to the privateKey")
-	flush         = flag.String("flush", "all", "Flush existing handles")
-
-	handleNames = map[string][]tpm2.HandleType{
-		"all":       []tpm2.HandleType{tpm2.HandleTypeLoadedSession, tpm2.HandleTypeSavedSession, tpm2.HandleTypeTransient},
-		"loaded":    []tpm2.HandleType{tpm2.HandleTypeLoadedSession},
-		"saved":     []tpm2.HandleType{tpm2.HandleTypeSavedSession},
-		"transient": []tpm2.HandleType{tpm2.HandleTypeTransient},
-	}
-
-	defaultKeyParams = tpm2.Public{
-		Type:    tpm2.AlgRSA,
-		NameAlg: tpm2.AlgSHA256,
-		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
-			tpm2.FlagUserWithAuth | tpm2.FlagRestricted | tpm2.FlagDecrypt,
-		AuthPolicy: []byte{},
-		RSAParameters: &tpm2.RSAParams{
-			Symmetric: &tpm2.SymScheme{
-				Alg:     tpm2.AlgAES,
-				KeyBits: 128,
-				Mode:    tpm2.AlgCFB,
-			},
-			KeyBits: 2048,
-		},
-	}
-
-	rsaKeyParams = tpm2.Public{
-		Type:    tpm2.AlgRSA,
-		NameAlg: tpm2.AlgSHA256,
-		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
-			tpm2.FlagUserWithAuth | tpm2.FlagSign,
-		AuthPolicy: []byte{},
-		RSAParameters: &tpm2.RSAParams{
-			Sign: &tpm2.SigScheme{
-				Alg:  tpm2.AlgRSASSA,
-				Hash: tpm2.AlgSHA256,
-			},
-			KeyBits: 2048,
-		},
-	}
+	tpmPath    = flag.String("tpm-path", "simulator", "Path to the TPM device (character device or a Unix socket).")
+	dataToSign = flag.String("datatosign", "foo", "data to sign")
 )
 
-func main() {
+var TPMDEVICES = []string{"/dev/tpm0", "/dev/tpmrm0"}
 
+func OpenTPM(path string) (io.ReadWriteCloser, error) {
+	if slices.Contains(TPMDEVICES, path) {
+		return tpmutil.OpenTPM(path)
+	} else if path == "simulator" {
+		return simulator.GetWithFixedSeedInsecure(1073741825)
+	} else {
+		return net.Dial("tcp", path)
+	}
+}
+
+func main() {
 	flag.Parse()
 
-	rwc, err := tpm2.OpenTPM(*tpmPath)
+	log.Println("======= Init  ========")
+
+	rwc, err := OpenTPM(*tpmPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Can't open TPM %s: %v", *tpmPath, err)
-		os.Exit(1)
+		log.Fatalf("can't open TPM %q: %v", *tpmPath, err)
 	}
 	defer func() {
-		if err := rwc.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "can't close TPM %s: %v", *tpmPath, err)
-			os.Exit(1)
-		}
+		rwc.Close()
 	}()
 
-	totalHandles := 0
-	for _, handleType := range handleNames[*flush] {
-		handles, err := client.Handles(rwc, handleType)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error getting handles", *tpmPath, err)
-			os.Exit(1)
+	rwr := transport.FromReadWriter(rwc)
+
+	log.Printf("======= createPrimary ========")
+
+	data := []byte(*dataToSign)
+
+	cmdPrimary := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHOwner,
+		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
+	}
+	primaryKey, err := cmdPrimary.Execute(rwr)
+	if err != nil {
+		log.Fatalf("can't create primary %v", err)
+	}
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: primaryKey.ObjectHandle,
 		}
-		for _, handle := range handles {
-			if err = tpm2.FlushContext(rwc, handle); err != nil {
-				fmt.Fprintf(os.Stderr, "Error flushing handle 0x%x: %v\n", handle, err)
-				os.Exit(1)
-			}
-			fmt.Printf("Handle 0x%x flushed\n", handle)
-			totalHandles++
-		}
-	}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
 
-	pcrList := []int{0}
-	pcrSelection := tpm2.PCRSelection{Hash: tpm2.AlgSHA256, PCRs: pcrList}
+	log.Printf("primaryKey Name %s\n", hex.EncodeToString(primaryKey.Name.Buffer))
+	log.Printf("primaryKey handle Value %d\n", cmdPrimary.PrimaryHandle.HandleValue())
 
-	pkh, _, err := tpm2.CreatePrimary(rwc, tpm2.HandleOwner, pcrSelection, emptyPassword, emptyPassword, defaultKeyParams)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating Primary %v\n", err)
-		os.Exit(1)
-	}
-	defer tpm2.FlushContext(rwc, pkh)
+	// rsa
 
-	pkhBytes, err := tpm2.ContextSave(rwc, pkh)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ContextSave failed for pkh %v\n", err)
-		os.Exit(1)
-	}
-
-	// err = tpm2.FlushContext(rwc, pkh)
-	// if err != nil {
-	// 	fmt.Fprintf(os.Stderr, "ContextSave failed for pkh%v\n", err)
-	// 	os.Exit(1)
-	// }
-	err = ioutil.WriteFile(*primaryHandle, pkhBytes, 0644)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ContextSave failed for pkh%v\n", err)
-		os.Exit(1)
-	}
-
-	// pkh, err = tpm2.ContextLoad(rwc, pkhBytes)
-	// if err != nil {
-	// 	fmt.Fprintf(os.Stderr, "ContextLoad failed for pkh %v\n", err)
-	// 	os.Exit(1)
-	// }
-
-	privInternal, pubArea, _, _, _, err := tpm2.CreateKey(rwc, pkh, pcrSelection, defaultPassword, defaultPassword, rsaKeyParams)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error  CreateKey %v\n", err)
-		os.Exit(1)
-	}
-	newHandle, _, err := tpm2.Load(rwc, pkh, defaultPassword, pubArea, privInternal)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error  loading hash key %v\n", err)
-		os.Exit(1)
-	}
-	defer tpm2.FlushContext(rwc, newHandle)
-
-	ekhBytes, err := tpm2.ContextSave(rwc, newHandle)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ContextSave failed for ekh %v\n", err)
-		os.Exit(1)
-	}
-	err = ioutil.WriteFile(*keyHandle, ekhBytes, 0644)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ContextSave failed for ekh%v\n", err)
-		os.Exit(1)
-	}
-
-	// pHandle := tpmutil.Handle(0x81010002)
-	// err = tpm2.EvictControl(rwc, defaultPassword, tpm2.HandleOwner, newHandle, pHandle)
-	// if err != nil {
-	// 	fmt.Fprintf(os.Stderr, "Error  persisting hash key  %v\n", err)
-	// 	os.Exit(1)
-	// }
-	// defer tpm2.FlushContext(rwc, pHandle)
-
-	fmt.Printf("======= Key persisted ========\n")
-
-	fmt.Printf("======= Sign with new RSA ========\n")
-	dataToSeal := []byte("secret")
-
-	digest, khValidation, err := tpm2.Hash(rwc, tpm2.AlgSHA256, dataToSeal, tpm2.HandleOwner)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Hash failed unexpectedly: %v", err)
-		return
-	}
-
-	sig, err := tpm2.Sign(rwc, newHandle, "", digest[:], khValidation, &tpm2.SigScheme{
-		Alg:  tpm2.AlgRSASSA,
-		Hash: tpm2.AlgSHA256,
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error Signing: %v", err)
-	}
-	fmt.Fprintf(os.Stderr, "Signature data:  %s\n", base64.RawStdEncoding.EncodeToString([]byte(sig.RSA.Signature)))
-
-	utPub, err := tpm2.DecodePublic(pubArea)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error DecodePublic AK %v", utPub)
-		return
-	}
-
-	uap, err := utPub.Key()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "akPub.Key() failed: %s", err)
-		return
-	}
-	uBytes, err := x509.MarshalPKIXPublicKey(uap)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to convert akPub: %v", err)
-		return
-	}
-
-	uakPubPEM := pem.EncodeToMemory(
-		&pem.Block{
-			Type:  "PUBLIC KEY",
-			Bytes: uBytes,
+	rsaTemplate := tpm2.TPMTPublic{
+		Type:    tpm2.TPMAlgRSA,
+		NameAlg: tpm2.TPMAlgSHA256,
+		ObjectAttributes: tpm2.TPMAObject{
+			SignEncrypt:         true,
+			FixedTPM:            true,
+			FixedParent:         true,
+			SensitiveDataOrigin: true,
+			UserWithAuth:        true,
 		},
-	)
-	fmt.Printf("RSA Signing Key \n%s\n", string(uakPubPEM))
-	hsh := crypto.SHA256.New()
-	hsh.Write(dataToSeal)
-	block, _ := pem.Decode(uakPubPEM)
-	if block == nil {
-		fmt.Fprintf(os.Stderr, "Unable to decode akPubPEM %v", err)
-		return
+		AuthPolicy: tpm2.TPM2BDigest{},
+		Parameters: tpm2.NewTPMUPublicParms(
+			tpm2.TPMAlgRSA,
+			&tpm2.TPMSRSAParms{
+				Scheme: tpm2.TPMTRSAScheme{
+					Scheme: tpm2.TPMAlgRSASSA,
+					Details: tpm2.NewTPMUAsymScheme(
+						tpm2.TPMAlgRSASSA,
+						&tpm2.TPMSSigSchemeRSASSA{
+							HashAlg: tpm2.TPMAlgSHA256,
+						},
+					),
+				},
+				KeyBits: 2048,
+			},
+		),
 	}
 
-	r, err := x509.ParsePKIXPublicKey(block.Bytes)
+	rsaKeyResponse, err := tpm2.CreateLoaded{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: primaryKey.ObjectHandle,
+			Name:   primaryKey.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPublic: tpm2.New2BTemplate(&rsaTemplate),
+	}.Execute(rwr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to create rsa Key from PEM %v", err)
-		return
+		log.Fatalf("can't create rsa %v", err)
 	}
-	rsaPub := *r.(*rsa.PublicKey)
 
-	if err := rsa.VerifyPKCS1v15(&rsaPub, crypto.SHA256, hsh.Sum(nil), sig.RSA.Signature); err != nil {
-		fmt.Fprintf(os.Stderr, "VerifyPKCS1v15 failed: %v", err)
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: rsaKeyResponse.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+	// *************** evict
+
+	// https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html#section-3.1.8
+	// _, err = tpm2.EvictControl{
+	// 	Auth: tpm2.TPMRHOwner,
+	// 	ObjectHandle: &tpm2.NamedHandle{
+	// 		Handle: primaryKey.ObjectHandle,
+	// 		Name:   primaryKey.Name,
+	// 	},
+	// 	PersistentHandle: tpm2.TPMHandle(*persistenthandle),
+	// }.Execute(rwr)
+	// if err != nil {
+	// 	log.Fatalf("can't create rsa %v", err)
+	// }
+
+	/// ============================ =================================================================================================
+
+	log.Printf("======= generate test signature with RSA key ========")
+	digest := sha256.Sum256(data)
+
+	sign := tpm2.Sign{
+		KeyHandle: tpm2.NamedHandle{
+			Handle: rsaKeyResponse.ObjectHandle,
+			Name:   rsaKeyResponse.Name,
+		},
+		Digest: tpm2.TPM2BDigest{
+			Buffer: digest[:],
+		},
+		InScheme: tpm2.TPMTSigScheme{
+			Scheme: tpm2.TPMAlgRSASSA,
+			Details: tpm2.NewTPMUSigScheme(
+				tpm2.TPMAlgRSASSA,
+				&tpm2.TPMSSchemeHash{
+					HashAlg: tpm2.TPMAlgSHA256,
+				},
+			),
+		},
+		Validation: tpm2.TPMTTKHashCheck{
+			Tag: tpm2.TPMSTHashCheck,
+		},
 	}
-	fmt.Printf("signature Verified\n")
+
+	rspSign, err := sign.Execute(rwr)
+	if err != nil {
+		log.Fatalf("Failed to Sign: %v", err)
+	}
+
+	pub, err := rsaKeyResponse.OutPublic.Contents()
+	if err != nil {
+		log.Fatalf("Failed to get rsa public: %v", err)
+	}
+	rsaDetail, err := pub.Parameters.RSADetail()
+	if err != nil {
+		log.Fatalf("Failed to get rsa details: %v", err)
+	}
+	rsaUnique, err := pub.Unique.RSA()
+	if err != nil {
+		log.Fatalf("Failed to get rsa unique: %v", err)
+	}
+
+	rsaPub, err := tpm2.RSAPub(rsaDetail, rsaUnique)
+	if err != nil {
+		log.Fatalf("Failed to get rsa public key: %v", err)
+	}
+
+	rsassa, err := rspSign.Signature.Signature.RSASSA()
+	if err != nil {
+		log.Fatalf("Failed to get signature part: %v", err)
+	}
+	log.Printf("signature: %s\n", base64.StdEncoding.EncodeToString(rsassa.Sig.Buffer))
+
+	if err := rsa.VerifyPKCS1v15(rsaPub, crypto.SHA256, digest[:], rsassa.Sig.Buffer); err != nil {
+		log.Fatalf("Failed to verify signature: %v", err)
+	}
+
 }

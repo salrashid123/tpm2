@@ -1,188 +1,212 @@
 package main
 
 import (
-	"crypto"
 	"crypto/ecdsa"
-	"crypto/x509"
+	"crypto/sha256"
 	"encoding/base64"
-	"encoding/pem"
+	"encoding/hex"
 	"flag"
-	"fmt"
-	"os"
+	"io"
+	"log"
+	"math/big"
+	"net"
+	"slices"
 
-	"github.com/google/go-tpm-tools/client"
-	//"github.com/google/go-tpm/tpm2"
-	"github.com/google/go-tpm/legacy/tpm2"
+	"github.com/google/go-tpm-tools/simulator"
+	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/tpm2/transport"
+	"github.com/google/go-tpm/tpmutil"
 )
 
-const (
-	emptyPassword   = ""
-	defaultPassword = ""
-)
+const ()
 
 var (
-	tpmPath = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
-	flush   = flag.String("flush", "all", "Flush existing handles")
-
-	handleNames = map[string][]tpm2.HandleType{
-		"all":       []tpm2.HandleType{tpm2.HandleTypeLoadedSession, tpm2.HandleTypeSavedSession, tpm2.HandleTypeTransient},
-		"loaded":    []tpm2.HandleType{tpm2.HandleTypeLoadedSession},
-		"saved":     []tpm2.HandleType{tpm2.HandleTypeSavedSession},
-		"transient": []tpm2.HandleType{tpm2.HandleTypeTransient},
-	}
-
-	defaultKeyParams = tpm2.Public{
-		Type:    tpm2.AlgRSA,
-		NameAlg: tpm2.AlgSHA256,
-		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
-			tpm2.FlagUserWithAuth | tpm2.FlagRestricted | tpm2.FlagDecrypt,
-		AuthPolicy: []byte{},
-		RSAParameters: &tpm2.RSAParams{
-			Symmetric: &tpm2.SymScheme{
-				Alg:     tpm2.AlgAES,
-				KeyBits: 128,
-				Mode:    tpm2.AlgCFB,
-			},
-			KeyBits: 2048,
-		},
-	}
-
-	keyParametersCreatedECC = tpm2.Public{
-		Type:    tpm2.AlgECC,
-		NameAlg: tpm2.AlgSHA256,
-		Attributes: tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagSensitiveDataOrigin |
-			tpm2.FlagUserWithAuth | tpm2.FlagSign,
-		ECCParameters: &tpm2.ECCParams{
-			Sign:    &tpm2.SigScheme{Alg: tpm2.AlgECDSA, Hash: tpm2.AlgSHA256},
-			CurveID: tpm2.CurveNISTP256,
-			Point: tpm2.ECPoint{
-				XRaw: make([]byte, 32),
-				YRaw: make([]byte, 32),
-			},
-		},
-	}
+	tpmPath    = flag.String("tpm-path", "simulator", "Path to the TPM device (character device or a Unix socket).")
+	dataToSign = flag.String("datatosign", "foo", "data to sign")
 )
 
-func main() {
+var TPMDEVICES = []string{"/dev/tpm0", "/dev/tpmrm0"}
 
+func OpenTPM(path string) (io.ReadWriteCloser, error) {
+	if slices.Contains(TPMDEVICES, path) {
+		return tpmutil.OpenTPM(path)
+	} else if path == "simulator" {
+		return simulator.GetWithFixedSeedInsecure(1073741825)
+	} else {
+		return net.Dial("tcp", path)
+	}
+}
+
+func main() {
 	flag.Parse()
 
-	rwc, err := tpm2.OpenTPM(*tpmPath)
+	log.Println("======= Init  ========")
+
+	rwc, err := OpenTPM(*tpmPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Can't open TPM %s: %v", *tpmPath, err)
-		os.Exit(1)
+		log.Fatalf("can't open TPM %q: %v", *tpmPath, err)
 	}
 	defer func() {
-		if err := rwc.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "can't close TPM %s: %v", *tpmPath, err)
-			os.Exit(1)
-		}
+		rwc.Close()
 	}()
 
-	totalHandles := 0
-	for _, handleType := range handleNames[*flush] {
-		handles, err := client.Handles(rwc, handleType)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error getting handles", *tpmPath, err)
-			os.Exit(1)
+	rwr := transport.FromReadWriter(rwc)
+
+	log.Printf("======= createPrimary ========")
+
+	data := []byte(*dataToSign)
+
+	cmdPrimary := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHOwner,
+		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
+	}
+	primaryKey, err := cmdPrimary.Execute(rwr)
+	if err != nil {
+		log.Fatalf("can't create primary %v", err)
+	}
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: primaryKey.ObjectHandle,
 		}
-		for _, handle := range handles {
-			if err = tpm2.FlushContext(rwc, handle); err != nil {
-				fmt.Fprintf(os.Stderr, "Error flushing handle 0x%x: %v\n", handle, err)
-				os.Exit(1)
-			}
-			fmt.Printf("Handle 0x%x flushed\n", handle)
-			totalHandles++
-		}
-	}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
 
-	pcrList := []int{0}
-	pcrSelection := tpm2.PCRSelection{Hash: tpm2.AlgSHA256, PCRs: pcrList}
+	log.Printf("primaryKey Name %s\n", hex.EncodeToString(primaryKey.Name.Buffer))
+	log.Printf("primaryKey handle Value %d\n", cmdPrimary.PrimaryHandle.HandleValue())
 
-	pkh, _, err := tpm2.CreatePrimary(rwc, tpm2.HandleOwner, pcrSelection, emptyPassword, emptyPassword, defaultKeyParams)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating Primary %v\n", err)
-		os.Exit(1)
-	}
-	defer tpm2.FlushContext(rwc, pkh)
-	privInternal, pubArea, _, _, _, err := tpm2.CreateKey(rwc, pkh, pcrSelection, defaultPassword, defaultPassword, keyParametersCreatedECC)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error  CreateKey %v\n", err)
-		os.Exit(1)
-	}
-	newHandle, _, err := tpm2.Load(rwc, pkh, defaultPassword, pubArea, privInternal)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error  loading hash key %v\n", err)
-		os.Exit(1)
-	}
-	defer tpm2.FlushContext(rwc, newHandle)
+	// ecc
 
-	fmt.Printf("======= Sign with new ECC ========\n")
-	dataToSeal := []byte("secret")
-
-	digest, khValidation, err := tpm2.Hash(rwc, tpm2.AlgSHA256, dataToSeal, tpm2.HandleOwner)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Hash failed unexpectedly: %v", err)
-		return
-	}
-
-	sig, err := tpm2.Sign(rwc, newHandle, "", digest[:], khValidation, &tpm2.SigScheme{
-		Alg:  tpm2.AlgECDSA,
-		Hash: tpm2.AlgSHA256,
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error Signing: %v", err)
-	}
-
-	utPub, err := tpm2.DecodePublic(pubArea)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error DecodePublic AK %v", utPub)
-		return
-	}
-	uap, err := utPub.Key()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "akPub.Key() failed: %s", err)
-		return
-	}
-	uBytes, err := x509.MarshalPKIXPublicKey(uap)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to convert akPub: %v", err)
-		return
-	}
-
-	uakPubPEM := pem.EncodeToMemory(
-		&pem.Block{
-			Type:  "PUBLIC KEY",
-			Bytes: uBytes,
+	eccTemplate := tpm2.TPMTPublic{
+		Type:    tpm2.TPMAlgECC,
+		NameAlg: tpm2.TPMAlgSHA256,
+		ObjectAttributes: tpm2.TPMAObject{
+			SignEncrypt:         true,
+			FixedTPM:            true,
+			FixedParent:         true,
+			SensitiveDataOrigin: true,
+			UserWithAuth:        true,
 		},
-	)
-	fmt.Printf("ECC Signing Key \n%s\n", string(uakPubPEM))
+		AuthPolicy: tpm2.TPM2BDigest{},
 
-	epub := uap.(*ecdsa.PublicKey)
-
-	curveBits := epub.Curve.Params().BitSize
-	keyBytes := curveBits / 8
-	if curveBits%8 > 0 {
-		keyBytes += 1
-	}
-	out := make([]byte, 2*keyBytes)
-	sig.ECC.R.FillBytes(out[0:keyBytes])
-	sig.ECC.S.FillBytes(out[keyBytes:])
-
-	fmt.Fprintf(os.Stderr, "Signature data:  %s\n", base64.RawStdEncoding.EncodeToString(out))
-
-	hsh := crypto.SHA256.New()
-	hsh.Write(dataToSeal)
-	block, _ := pem.Decode(uakPubPEM)
-	if block == nil {
-		fmt.Fprintf(os.Stderr, "Unable to decode akPubPEM %v", err)
-		return
+		Parameters: tpm2.NewTPMUPublicParms(
+			tpm2.TPMAlgECC,
+			&tpm2.TPMSECCParms{
+				CurveID: tpm2.TPMECCNistP256,
+				Scheme: tpm2.TPMTECCScheme{
+					Scheme: tpm2.TPMAlgECDSA,
+					Details: tpm2.NewTPMUAsymScheme(
+						tpm2.TPMAlgECDSA,
+						&tpm2.TPMSSigSchemeECDSA{
+							HashAlg: tpm2.TPMAlgSHA256,
+						},
+					),
+				},
+			},
+		),
 	}
 
-	ok := ecdsa.Verify(epub, digest[:], epub.X, epub.Y)
+	eccKeyResponse, err := tpm2.CreateLoaded{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: primaryKey.ObjectHandle,
+			Name:   primaryKey.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPublic: tpm2.New2BTemplate(&eccTemplate),
+	}.Execute(rwr)
+	if err != nil {
+		log.Fatalf("can't create ecc %v", err)
+	}
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: eccKeyResponse.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
+	// *************** evict
+
+	// https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html#section-3.1.8
+	// _, err = tpm2.EvictControl{
+	// 	Auth: tpm2.TPMRHOwner,
+	// 	ObjectHandle: &tpm2.NamedHandle{
+	// 		Handle: primaryKey.ObjectHandle,
+	// 		Name:   primaryKey.Name,
+	// 	},
+	// 	PersistentHandle: tpm2.TPMHandle(*persistenthandle),
+	// }.Execute(rwr)
+	// if err != nil {
+	// 	log.Fatalf("can't create rsa %v", err)
+	// }
+
+	/// ============================ =================================================================================================
+
+	log.Printf("======= generate test signature with RSA key ========")
+	digest := sha256.Sum256(data)
+
+	sign := tpm2.Sign{
+		KeyHandle: tpm2.NamedHandle{
+			Handle: eccKeyResponse.ObjectHandle,
+			Name:   eccKeyResponse.Name,
+		},
+		Digest: tpm2.TPM2BDigest{
+			Buffer: digest[:],
+		},
+		InScheme: tpm2.TPMTSigScheme{
+			Scheme: tpm2.TPMAlgECDSA,
+			Details: tpm2.NewTPMUSigScheme(
+				tpm2.TPMAlgECDSA,
+				&tpm2.TPMSSchemeHash{
+					HashAlg: tpm2.TPMAlgSHA256,
+				},
+			),
+		},
+		Validation: tpm2.TPMTTKHashCheck{
+			Tag: tpm2.TPMSTHashCheck,
+		},
+	}
+
+	rspSign, err := sign.Execute(rwr)
+	if err != nil {
+		log.Fatalf("Failed to Sign: %v", err)
+	}
+
+	outPub, err := eccKeyResponse.OutPublic.Contents()
+	if err != nil {
+		log.Fatalf("Failed to get rsa public: %v", err)
+	}
+
+	ecDetail, err := outPub.Parameters.ECCDetail()
+	if err != nil {
+		log.Fatalf("Failed to get rsa public: %v", err)
+	}
+	crv, err := ecDetail.CurveID.Curve()
+	if err != nil {
+		log.Fatalf("Failed to get rsa public: %v", err)
+	}
+
+	eccUnique, err := outPub.Unique.ECC()
+	if err != nil {
+		log.Fatalf("Failed to get ecc public key: %v", err)
+	}
+
+	pubKey := &ecdsa.PublicKey{
+		Curve: crv,
+		X:     big.NewInt(0).SetBytes(eccUnique.X.Buffer),
+		Y:     big.NewInt(0).SetBytes(eccUnique.Y.Buffer),
+	}
+
+	ecsig, err := rspSign.Signature.Signature.ECDSA()
+	if err != nil {
+		log.Fatalf("Failed to get signature part: %v", err)
+	}
+
+	out := append(ecsig.SignatureR.Buffer, ecsig.SignatureS.Buffer...)
+	log.Printf("raw signature: %v\n", base64.StdEncoding.EncodeToString(out))
+	log.Printf("ecpub: x %v\n", pubKey)
+	ok := ecdsa.Verify(pubKey, digest[:], big.NewInt(0).SetBytes(ecsig.SignatureR.Buffer), big.NewInt(0).SetBytes(ecsig.SignatureS.Buffer))
 	if !ok {
-		fmt.Printf("ECDSA Signed String failed\n")
+		log.Fatalf("Failed to verify signature: %v", err)
 	}
-	fmt.Printf("ECDSA Signed String verified\n")
 
 }
