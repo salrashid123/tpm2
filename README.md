@@ -8,15 +8,23 @@ Also shown equivalent use of `go-tpm` library set.
 
 for the `go-tpm` examples, i am slowly migrating them over to the [go-tpm direct](https://github.com/google/go-tpm/releases/tag/v0.9.0) API.  If you would rather use the legacy version, just check the commit history to maybe a snapshot at July 2024.
 
->> Many of the examples with tpm-direct uses `tpm2.EncryptDecrypt2` which isn't implemented yet updstream but i do have it working on a local fork which i'll submit a PR for shortly (see [encrypt_decrypt_aes/README.md](encrypt_decrypt_aes/README.md))
+---
 
+Additional References:
 
 - [tpm2-tools](https://github.com/tpm2-software/tpm2-tools)
 - [go-tpm](https://github.com/google/go-tpm)
 - [go-tpm-tools](https://github.com/google/go-tpm-tools)
 - [go-attestation](https://github.com/google/go-attestation)
 
----
+- [tpm2genkey](https://github.com/salrashid123/tpm2genkey)
+
+    Simple cli utility similar to [tpm2tss-genkey](https://github.com/tpm2-software/tpm2-tss-engine/blob/master/man/tpm2tss-genkey.1.md) which 
+
+    * creates new TPM-based `RSA|ECC` keys and saves the keys in `PEM` format.
+    * converts basic the public/private keyfiles generated using `tpm2_tools` into `PEM` file format.
+    * converts `PEM` TPM keyfiles to public/private structures readable by `tpm2_tools`.
+
 - [tpm-js simulator](https://google.github.io/tpm-js/)
 
 
@@ -264,6 +272,33 @@ Git repo demonstrating running mTLS using go-tpm and nginx webserver:
 
 - [golang TLS with Trusted Platform Module (TPM) based keys](https://github.com/salrashid123/go_tpm_https)
 
+
+### TPM based private key
+
+If you have openssl and want to issue a cert on the TPM, 
+
+using openssl3 [tpm2-openssl](https://github.com/tpm2-software/tpm2-openssl) installed:
+
+```bash
+
+openssl version
+   OpenSSL 3.0.9 30 May 2023 (Library: OpenSSL 3.0.9 30 May 2023)
+
+export NAME=tpms
+
+openssl genpkey -provider tpm2 -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
+      -pkeyopt rsa_keygen_pubexp:65537 -out certs/$NAME.key
+
+openssl req -new  -provider tpm2 -provider default \
+      -config server.conf   -out certs/$NAME.csr \
+          -key certs/$NAME.key   -subj "/C=US/O=Google/OU=Enterprise/CN=server.domain.com"
+
+openssl ca \
+    -config single-root-ca.conf \
+    -in certs/$NAME.csr \
+    -out certs/$NAME.crt \
+    -extensions server_ext
+```
 
 ### Appendix
 
