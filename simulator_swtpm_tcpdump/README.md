@@ -6,7 +6,7 @@ If you want to capture raw API calls with software TPM, start it first as a sock
 
 ```bash
 mkdir /tmp/myvtpm
-
+sudo swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --create-ek-cert
 sudo swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear
 ```
 
@@ -49,6 +49,17 @@ tpm2_pcrread sha256:23
 	tpm2_getcap  handles-transient
 	tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
 	tpm2_evictcontrol -C o -c key.ctx 0x81008002	
+```
+
+For openssl
+
+```bash
+export TPM2OPENSSL_TCTI="swtpm:port=2321"
+tpm2tss-genkey -a rsa -s 2048 private.pem
+
+## with https://github.com/tpm2-software/tpm2-openssl
+openssl asn1parse -inform PEM -in private.pem
+openssl rsa -provider tpm2  -provider default -in private.pem --text
 ```
 
 

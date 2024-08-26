@@ -10,14 +10,54 @@ for the `go-tpm` examples, i am slowly migrating them over to the [go-tpm direct
 
 ---
 
+### Related items
+
+### Key transfer
+
+* [Go-TPM-Wrapping - Go library for encrypting data using Trusted Platform Module (TPM)](https://github.com/salrashid123/go-tpm-wrapping)
+* [TINK Go TPM extension](https://github.com/salrashid123/tink-go-tpm/)
+* [Transferring RSA and Symmetric keys with GCP vTPMs](https://github.com/salrashid123/gcp_tpm_sealed_keys)
+* [tpm2genkey go utility](https://github.com/salrashid123/tpm2genkey)
+* [OCICrypt provider for Trusted Platform Modules (TPM)](https://github.com/salrashid123/ocicrypt-tpm-keyprovider)
+
+### go library
+
+* [TPM backed crypto/rand Reader](https://github.com/salrashid123/tpmrand)
+* [crypto.Signer, implementations for Google Cloud KMS and Trusted Platform Modules](https://github.com/salrashid123/signer)
+* [golang-jwt for Trusted Platform Module (TPM)](https://github.com/salrashid123/golang-jwt-tpm)
+
+### CLoud Authentication
+
+For authentication using TPM based keys to cloud providers
+
+* `AWS HMAC`:  [AWS Credentials for Hardware Security Modules and TPM based AWS_SECRET_ACCESS_KEY](https://github.com/salrashid123/aws_hmac)
+* `AWS Roles Anywhere`: [AWS SDK CredentialProvider for RolesAnywhere](https://github.com/salrashid123/aws_rolesanywhere_signer)
+* `AWS TPM process credentials`: [AWS Process Credentials for Trusted Platform Module (TPM)](https://github.com/salrashid123/aws-tpm-process-credential)
+
+* `Azure` [KMS, TPM and HSM based Azure Certificate Credentials](https://github.com/salrashid123/azsigner)
+
+* `GCP Credential Source Binary`: [TPM Credential Source for Google Cloud SDK](https://github.com/salrashid123/gcp-adc-tpm)
+* `GCP TokenSource`: [GCP TPM AccessTokenSource](https://github.com/salrashid123/oauth2?tab=readme-ov-file#usage-tpmtokensource)
+
+### Kubernetes
+
+* [Kubernetes Trusted Platform Module (TPM) DaemonSet](https://github.com/salrashid123/tpm_daemonset)
+* [Kubernetes Trusted Platform Module (TPM) using Device Plugin and Gatekeeper](https://github.com/salrashid123/tpm_kubernetes)
+
+### TLS examples
+
+* [mTLS with TPM bound private key](https://github.com/salrashid123/go_tpm_https_embed)
+* [TPM based TLS using Attested Keys (experimental)](https://github.com/salrashid123/tls_ak)
+
+
+---
+
 Additional References:
 
 - [tpm2-tools](https://github.com/tpm2-software/tpm2-tools)
 - [go-tpm](https://github.com/google/go-tpm)
 - [go-tpm-tools](https://github.com/google/go-tpm-tools)
 - [go-attestation](https://github.com/google/go-attestation)
-
-- [tpm2genkey](https://github.com/salrashid123/tpm2genkey)
 
     Simple cli utility similar to [tpm2tss-genkey](https://github.com/tpm2-software/tpm2-tss-engine/blob/master/man/tpm2tss-genkey.1.md) which 
 
