@@ -1,15 +1,25 @@
 
 # TPM Sign with RSA
 
-```
-tpm2_createprimary -C e -c primary.ctx
-tpm2_create -G rsa -u key.pub -r key.priv -C primary.ctx
+```bash
+echo "my message" > message.dat
+
+tpm2_createprimary -C o -c primary.ctx -Q
+tpm2_create -G rsa2048:rsassa:null -g sha256 -u key.pub -r key.priv -C primary.ctx -Q
 
 tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
+tpm2_readpublic -c key.ctx  -o key.pem -f PEM -Q
 
-echo "my message" > message.dat
+cat key.pem
+
 tpm2_sign -c key.ctx -g sha256 -o sig.rssa message.dat
 tpm2_verifysignature -c key.ctx -g sha256 -s sig.rssa -m message.dat
+
+### openssl
+sha256sum message.dat | awk '{ print "000000 " $1 }' | xxd -r -c 32 > data.in.digest
+tpm2_sign -Q -c key.ctx -g sha256 -d -f plain -o data.out.signed data.in.digest
+openssl dgst -verify key.pem -keyform pem -sha256 -signature data.out.signed message.dat
+
 ```
 
 
