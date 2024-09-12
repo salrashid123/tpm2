@@ -1,9 +1,14 @@
 package main
 
 import (
+	"crypto"
+	"crypto/rand"
 	"encoding/hex"
 	"flag"
+	"io"
 	"log"
+	"net"
+	"slices"
 
 	// "github.com/google/go-tpm-tools/simulator"
 	// "github.com/google/go-tpm/tpmutil"
@@ -11,25 +16,35 @@ import (
 	"github.com/google/go-tpm-tools/simulator"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
+	"github.com/google/go-tpm/tpmutil"
 )
 
 const ()
 
 var (
-	tpmPath = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
-	out     = flag.String("out", "private.pem", "privateKey File")
+	tpmPath = flag.String("tpm-path", "simulator", "Path to the TPM device (character device or a Unix socket).")
 )
 
+var TPMDEVICES = []string{"/dev/tpm0", "/dev/tpmrm0"}
+
+func OpenTPM(path string) (io.ReadWriteCloser, error) {
+	if slices.Contains(TPMDEVICES, path) {
+		return tpmutil.OpenTPM(path)
+	} else if path == "simulator" {
+		return simulator.GetWithFixedSeedInsecure(1073741825)
+	} else {
+		return net.Dial("tcp", path)
+	}
+}
+
 func main() {
-	flag.Parse()
 
 	flag.Parse()
 	log.Println("======= Init  ========")
 
 	// ************************
 
-	//rwc, err := tpmutil.OpenTPM(*tpmPath)
-	rwc, err := simulator.GetWithFixedSeedInsecure(1073741825)
+	rwc, err := OpenTPM(*tpmPath)
 	if err != nil {
 		log.Fatalf("can't open TPM %q: %v", *tpmPath, err)
 	}
@@ -43,7 +58,7 @@ func main() {
 
 	data := []byte("foo")
 	primaryPassword := []byte("hello")
-	primarySensitive := []byte("change this password to a secret")
+	keySensitive := []byte("change this password to a secret")
 	keyPassword := []byte("hello2")
 
 	cmdPrimary := tpm2.CreatePrimary{
@@ -55,9 +70,6 @@ func main() {
 				UserAuth: tpm2.TPM2BAuth{
 					Buffer: primaryPassword,
 				},
-				Data: tpm2.NewTPMUSensitiveCreate(&tpm2.TPM2BSensitiveData{
-					Buffer: primarySensitive,
-				}),
 			},
 		},
 	}
@@ -82,12 +94,18 @@ func main() {
 
 	// hmac
 
+	sv := make([]byte, 32)
+	io.ReadFull(rand.Reader, sv)
+	privHash := crypto.SHA256.New()
+	privHash.Write(sv)
+	privHash.Write(keySensitive)
+
 	hmacTemplate := tpm2.TPMTPublic{
 		Type:    tpm2.TPMAlgKeyedHash,
 		NameAlg: tpm2.TPMAlgSHA256,
 		ObjectAttributes: tpm2.TPMAObject{
-			FixedTPM:            true,
-			FixedParent:         true,
+			FixedTPM:            false,
+			FixedParent:         false,
 			SensitiveDataOrigin: false,
 			UserWithAuth:        true,
 			SignEncrypt:         true,
@@ -103,29 +121,62 @@ func main() {
 						}),
 				},
 			}),
+		Unique: tpm2.NewTPMUPublicID(
+			tpm2.TPMAlgKeyedHash,
+			&tpm2.TPM2BDigest{
+				Buffer: privHash.Sum(nil),
+			},
+		),
 	}
 
-	hmacKey, err := tpm2.CreateLoaded{
+	sens2B := tpm2.Marshal(tpm2.TPMTSensitive{
+		SensitiveType: tpm2.TPMAlgKeyedHash,
+		AuthValue: tpm2.TPM2BAuth{
+			Buffer: keyPassword,
+		},
+		SeedValue: tpm2.TPM2BDigest{
+			Buffer: sv,
+		},
+		Sensitive: tpm2.NewTPMUSensitiveComposite(
+			tpm2.TPMAlgKeyedHash,
+			&tpm2.TPM2BSensitiveData{Buffer: keySensitive},
+		),
+	})
+
+	l := tpm2.Marshal(tpm2.TPM2BPrivate{Buffer: sens2B})
+
+	importResponse, err := tpm2.Import{
 		ParentHandle: tpm2.AuthHandle{
 			Handle: primaryKey.ObjectHandle,
 			Name:   primaryKey.Name,
 			Auth:   tpm2.PasswordAuth(primaryPassword),
 		},
-		InPublic: tpm2.New2BTemplate(&hmacTemplate),
-		InSensitive: tpm2.TPM2BSensitiveCreate{
-			Sensitive: &tpm2.TPMSSensitiveCreate{
-				UserAuth: tpm2.TPM2BAuth{
-					Buffer: keyPassword,
-				},
-				Data: tpm2.NewTPMUSensitiveCreate(&tpm2.TPM2BSensitiveData{
-					Buffer: primarySensitive,
-				}),
-			},
-		},
+		ObjectPublic: tpm2.New2B(hmacTemplate),
+		Duplicate:    tpm2.TPM2BPrivate{Buffer: l},
 	}.Execute(rwr)
 	if err != nil {
-		log.Fatalf("can't create hmacKey %q: %v", *tpmPath, err)
+		log.Fatalf("can't import hmac %v", err)
 	}
+
+	hmacKey, err := tpm2.Load{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: primaryKey.ObjectHandle,
+			Name:   primaryKey.Name,
+			Auth:   tpm2.PasswordAuth(primaryPassword),
+		},
+		InPublic:  tpm2.New2B(hmacTemplate),
+		InPrivate: importResponse.OutPrivate,
+	}.Execute(rwr)
+	if err != nil {
+		log.Fatalf("can't load hmac %v", err)
+	}
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: hmacKey.ObjectHandle,
+		}
+		_, _ = flushContextCmd.Execute(rwr)
+	}()
 
 	objAuth := &tpm2.TPM2BAuth{
 		Buffer: keyPassword,
@@ -218,4 +269,12 @@ func hmac(rwr transport.TPM, data []byte, objHandle tpm2.TPMHandle, objName tpm2
 
 	return rspSC.Result.Buffer, nil
 
+}
+
+func decodeHex(h string) []byte {
+	data, err := hex.DecodeString(h)
+	if err != nil {
+		panic(err)
+	}
+	return data
 }
