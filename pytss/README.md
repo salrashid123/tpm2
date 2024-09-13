@@ -23,6 +23,7 @@ python3 -m pip install tpm2-pytss
 - `esapi_create_sign.py`: create rsa key and sign/verify
 - `esapi_encrypt_decrypt.py`: create aes key and encrypt/decrypt
 - `esapi_hmac_import.py`: import and use an hmac key
+- `esapi_keyfile.py`: create and use PEM encoded keyfiles
 
 - `fapi_create_sign.py`: create rsa key and sign/verify
 - `fapi_seal_unseal.py`: seal/unseal 

@@ -56,3 +56,5 @@ print(signature.marshal().hex())
 
 ectx.verify_signature(childHandle,  TPM2B_DIGEST(digest), signature)
 ectx.flush_context(childHandle)
+
+ectx.close()
