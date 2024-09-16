@@ -1,10 +1,22 @@
 from tpm2_pytss import *
 
 import random, string
+
+
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.backends import default_backend
+
+
+def sha256(data: bytes) -> bytes:
+    digest = hashes.Hash(hashes.SHA256(), backend=default_backend())
+    digest.update(data)
+    digest = digest.finalize()
+    return digest
+
+
 def random_uid() -> str:
     """Generate a random id which can be used e.g. for unique key names."""
     return "".join(random.choices(string.digits, k=10))
-
 
 FAPIConfig(profile_name='P_RSA2048SHA256',tcti="swtpm:port=2321", temp_dirs=False, ek_cert_less='yes',
            system_dir="~/.local/share/tpm2-tss/system/keystore",
@@ -14,11 +26,10 @@ FAPIConfig(profile_name='P_RSA2048SHA256',tcti="swtpm:port=2321", temp_dirs=Fals
 fapi_ctx = FAPI()
 fapi_ctx.provision()
 
-seal_data = "secret".encode()
 
-policy_path= f"/policy{random_uid()}"
-key_path= f"/HS/SRK/key{random_uid()}"
+key_path= f"/HS/SRK/sign1111"
 
+policy_path = f"/policy/pcr-policy"
 pcr_policy="""{
     "description":"Policy PCR 0 TPM2_ALG_SHA256",
     "policy":[
@@ -36,19 +47,18 @@ pcr_policy="""{
 }
 
 """
-fapi_ctx.import_object(path=policy_path, import_data=pcr_policy)
+fapi_ctx.import_object(path=policy_path, import_data=pcr_policy, exists_ok=True)
+fapi_ctx.create_key(path=key_path, type_='sign', exists_ok=True, policy_path=policy_path)
 
-success = fapi_ctx.create_seal(path=key_path, data=seal_data,  policy_path=policy_path)
+l = fapi_ctx.list(search_path="/HS/")
+print(l)
 
-print(success)
+digest = sha256(b"fff")
+sig, pub,cert = fapi_ctx.sign(path=key_path, digest=digest, padding="rsa_ssa")
+print(sig.hex())
 
-# pcr_data = b"abc"
-# pcr_digest = sha256(pcr_data)
-# fapi_ctx.pcr_extend(index=0,data=pcr_digest)
 
-unsealed_data = fapi_ctx.unseal(path=key_path)
+fapi_ctx.verify_signature(path=key_path, digest=digest, signature=sig)
 
-print(unsealed_data.decode('ascii'))
-
-# fapi_ctx.delete("/")
+#fapi_ctx.delete("/")
 fapi_ctx.close()

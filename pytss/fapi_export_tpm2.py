@@ -4,6 +4,11 @@ from tpm2_pytss import *
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
 
+import random, string
+def random_uid() -> str:
+    """Generate a random id which can be used e.g. for unique key names."""
+    return "".join(random.choices(string.digits, k=10))
+
 
 ## after running fapi_export_tpm2.py, you'll have /tmp/key.pub /tmp/key.priv which you can load with:
 
@@ -30,8 +35,11 @@ FAPIConfig(profile_name='P_RSA2048SHA256',tcti="swtpm:port=2321", temp_dirs=Fals
 fapi_ctx = FAPI()
 fapi_ctx.provision()
 
+key_path= f"/HS/SRK/sign{random_uid()}"
+
+
 try:
-    fapi_ctx.create_key(path='/HS/SRK/sign1', type_='sign', exists_ok=False)
+    fapi_ctx.create_key(path=key_path, type_='sign', exists_ok=False)
 except Exception as e:
   print(e)
   pass
@@ -41,11 +49,11 @@ print(l)
 
 digest = sha256(b"fff")
 
-sig, pub,cert = fapi_ctx.sign(path='/HS/SRK/sign1', digest=digest, padding="rsa_ssa")
+sig, pub,cert = fapi_ctx.sign(path=key_path, digest=digest, padding="rsa_ssa")
 print(sig.hex())
-fapi_ctx.verify_signature(path='/HS/SRK/sign1', digest=digest, signature=sig)
+fapi_ctx.verify_signature(path=key_path, digest=digest, signature=sig)
 
-pub, priv, pol = fapi_ctx.get_tpm_blobs(path='/HS/SRK/sign1')
+pub, priv, pol = fapi_ctx.get_tpm_blobs(path=key_path)
 
 
 with open("/tmp/key.pub", "wb") as binary_file:

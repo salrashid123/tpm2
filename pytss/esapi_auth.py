@@ -11,6 +11,9 @@ def sha256(data: bytes) -> bytes:
 
 ectx = ESAPI(tcti="swtpm:port=2321")
 ectx.startup(TPM2_SU.CLEAR)
+r = ectx.get_random( 8 )
+print(str(r))
+
 
 inPublic = TPM2B_PUBLIC(
             TPMT_PUBLIC.parse(
@@ -35,7 +38,9 @@ inPublicRSA = TPM2B_PUBLIC(
             )
 )
 
-inSensitive = TPM2B_SENSITIVE_CREATE()
+inSensitive = TPM2B_SENSITIVE_CREATE(
+            TPMS_SENSITIVE_CREATE(userAuth=TPM2B_AUTH("password"))
+    )
 primary1, _, _, _, _ = ectx.create_primary(inSensitive, inPublic)
 priv, pub, _, _, _ = ectx.create(primary1, inSensitive, inPublicRSA)
 childHandle = ectx.load(primary1, priv, pub)
@@ -48,13 +53,12 @@ validation = TPMT_TK_HASHCHECK(tag=TPM2_ST.HASHCHECK, hierarchy=TPM2_RH.OWNER)
 
 digest, ticket = ectx.hash(b"fff", TPM2_ALG.SHA256, ESYS_TR.OWNER)
 
-s = ectx.sign(childHandle, TPM2B_DIGEST(digest), scheme, validation)
+ectx.tr_set_auth(childHandle, "password")
+signature = ectx.sign(childHandle, TPM2B_DIGEST(digest), scheme, validation)
+print(signature.marshal().hex())
 
-print(s.sigAlg)
-print(s.signature.rsassa.hash)
-print(s.signature.rsassa.sig)
-
-ectx.verify_signature(childHandle,  TPM2B_DIGEST(digest), s)
+ectx.tr_set_auth(childHandle, "password")
+ectx.verify_signature(childHandle,  TPM2B_DIGEST(digest), signature)
 ectx.flush_context(childHandle)
 
 ectx.close()

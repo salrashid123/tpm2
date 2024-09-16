@@ -76,7 +76,16 @@ ectx.flush_context(primary1)
 
 f = open("/tmp/p1.pem", "r")
 k = TSSPrivKey.from_pem(f.read().encode("utf-8"))
-aesKeyHandle = k.load(ectx,password='')
+
+
+# see https://github.com/tpm2-software/tpm2-pytss/issues/595
+### its better to  load h2 primary and flush manually
+# aesKeyHandle = k.load(ectx,password='')
+inSensitive = TPM2B_SENSITIVE_CREATE()
+primary1, _, _, _, _ = ectx.create_primary(inSensitive,  TPM2B_PUBLIC(publicArea=_parent_ecc_template))
+aesKeyHandle = ectx.load(primary1, k.private, k.public)
+ectx.flush_context(primary1)
+
 
 ivIn = TPM2B_IV(bytes(bytearray.fromhex("4ca91f6bc6376a33a4ddb8a9c3cf5ea9")))
 inData = TPM2B_MAX_BUFFER(b"foo")
@@ -87,7 +96,6 @@ print(encrypted)
 decrypted, outIV2 = ectx.encrypt_decrypt(aesKeyHandle, True, TPM2_ALG.CFB, ivIn, encrypted)
 print(decrypted.marshal().decode("ascii"))
 
-# see https://github.com/tpm2-software/tpm2-pytss/issues/595
 ectx.flush_context(aesKeyHandle)
 
 ectx.close()

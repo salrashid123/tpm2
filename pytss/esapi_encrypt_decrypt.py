@@ -41,7 +41,8 @@ inData = TPM2B_MAX_BUFFER(b"fooo")
 
 encrpyted, outIV2 = ectx.encrypt_decrypt(aesKeyHandle, False, TPM2_ALG.CFB, ivIn, inData)
 
-print(encrpyted)
+print(encrpyted.buffer.hex())
+print(outIV2.buffer.hex())
 
 decrypted, outIV2 = ectx.encrypt_decrypt(aesKeyHandle, True, TPM2_ALG.CFB, ivIn, encrpyted)
 

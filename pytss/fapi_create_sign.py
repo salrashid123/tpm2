@@ -5,6 +5,12 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
 
 
+import random, string
+def random_uid() -> str:
+    """Generate a random id which can be used e.g. for unique key names."""
+    return "".join(random.choices(string.digits, k=10))
+
+
 def sha256(data: bytes) -> bytes:
     digest = hashes.Hash(hashes.SHA256(), backend=default_backend())
     digest.update(data)
@@ -20,8 +26,10 @@ FAPIConfig(profile_name='P_RSA2048SHA256',tcti="swtpm:port=2321", temp_dirs=Fals
 fapi_ctx = FAPI()
 fapi_ctx.provision()
 
+key_path= f"/HS/SRK/sign{random_uid()}"
+
 try:
-    fapi_ctx.create_key(path='/HS/SRK/sign1', type_='sign', exists_ok=False)
+    fapi_ctx.create_key(path=key_path, type_='sign', exists_ok=False)
 except Exception as e:
   print(e)
   pass
@@ -31,11 +39,11 @@ print(l)
 
 digest = sha256(b"fff")
 
-sig, pub,cert = fapi_ctx.sign(path='/HS/SRK/sign1', digest=digest, padding="rsa_ssa")
+sig, pub,cert = fapi_ctx.sign(path=key_path, digest=digest, padding="rsa_ssa")
 print(sig.hex())
 
 
-fapi_ctx.verify_signature(path='/HS/SRK/sign1', digest=digest, signature=sig)
+fapi_ctx.verify_signature(path=key_path, digest=digest, signature=sig)
 
 #fapi_ctx.delete("/")
 fapi_ctx.close()

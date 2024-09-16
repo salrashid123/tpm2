@@ -50,8 +50,8 @@ priv, pub, _, _, _ = ectx.create(primary1, inSensitiveHMAC, inPublicHMAC)
 childHandle = ectx.load(primary1, priv, pub)
 ectx.flush_context(primary1)
 thmac = ectx.hmac(childHandle, b"foo", TPM2_ALG.SHA256)
-print(thmac)
-print(thmac.__bytes__().hex())
+
+print(thmac.buffer.hex())
 
 
 ectx.flush_context(childHandle)

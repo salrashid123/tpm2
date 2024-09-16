@@ -121,3 +121,151 @@ pwIDAQAB
 ---
 
 
+### Using tpm2genkey to covert  
+
+[https://github.com/salrashid123/tpm2genkey](https://github.com/salrashid123/tpm2genkey)
+
+### Setup using simulator
+
+```bash
+export TPM2TOOLS_TCTI="swtpm:port=2321"
+export OPENSSL_MODULES=/usr/lib/x86_64-linux-gnu/ossl-modules/
+export TPM2OPENSSL_TCTI="swtpm:port=2321"
+
+
+rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm
+sudo swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --create-ek-cert
+sudo swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear --log level=5
+
+### create H2 template
+printf '\x00\x00' > /tmp/unique.dat
+tpm2_createprimary -C o -G ecc  -g sha256 \
+    -c primary.ctx \
+    -a "fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda|restricted|decrypt" -u /tmp/unique.dat
+
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
+```
+
+### rsa
+
+```bash
+openssl genpkey -algorithm rsa -pkeyopt rsa_keygen_bits:2048 -pkeyopt rsa_keygen_primes:2  -pkeyopt rsa_keygen_pubexp:65537 -out rsakey.pem
+openssl rsa -in rsakey.pem -pubout > rsapub.pem
+
+echo -n "foo" > data.bin
+openssl dgst -sha256 -binary data.bin > hash.txt
+openssl pkeyutl -sign  -pkeyopt rsa_padding_mode:pkcs1    -inkey rsakey.pem -in hash.txt > data.sign
+openssl pkeyutl -verify -in hash.txt -sigfile data.sign -inkey rsapub.pem -pubin
+
+
+tpm2_import -C primary.ctx  -G rsa2048:rsassa:null -g sha256 -i rsakey.pem -u rsa.pub -r rsa.prv
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
+tpm2_load -C primary.ctx -u rsa.pub -r rsa.prv -c rsa.ctx
+tpm2_readpublic -c rsa.ctx  -o rsatpmpub.pem -f PEM -Q
+cat rsatpmpub.pem
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
+tpm2_sign -c rsa.ctx -g sha256 -o sig.rssa data.bin
+tpm2_verifysignature -c rsa.ctx -g sha256 -s sig.rssa -m data.bin
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
+
+# https://github.com/salrashid123/tpm2genkey
+go run cmd/main.go  --mode=tpm2pem --public=/tmp/rsa.pub --private=/tmp/rsa.prv --out=/tmp/rsatpm.pem  --tpm-path="127.0.0.1:2321"
+
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
+openssl rsa -provider tpm2  -provider default -in rsatpm.pem --text
+
+openssl dgst -binary -sha256 data.bin > hash.txt
+openssl pkeyutl  -provider tpm2  -provider default -sign -pkeyopt rsa_padding_mode:pkcs1 -pkeyopt digest:sha256  -inkey rsatpm.pem  -in hash.txt > data.sign
+openssl dgst -provider tpm2  -provider default -verify rsatpmpub.pem  -sha256 -signature data.sign data.bin
+
+```
+
+### ecc
+
+```bash
+openssl genpkey -algorithm ec -pkeyopt  ec_paramgen_curve:P-256 \
+          -pkeyopt ec_param_enc:named_curve \
+          -out eckey.pem
+
+
+openssl ec -in eckey.pem -pubout > ecpub.pem
+
+echo -n "foo" > data.bin
+openssl dgst -sha256 -binary data.bin > hash.txt
+openssl pkeyutl -sign    -inkey eckey.pem -in hash.txt > data.sign
+openssl pkeyutl -verify -in hash.txt -sigfile data.sign -inkey ecpub.pem -pubin
+
+
+tpm2_import -C primary.ctx  -G ecc:ecdsa  -g sha256   -i eckey.pem -u ec.pub -r ec.prv
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
+tpm2_load -C primary.ctx -u ec.pub -r ec.prv -c ec.ctx
+tpm2_readpublic -c ec.ctx  -o ectpmpub.pem -f PEM -Q
+cat ectpmpub.pem
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
+tpm2_sign -c ec.ctx -g sha256 -o sig.ec data.bin
+tpm2_verifysignature -c ec.ctx -g sha256 -s sig.ec -m data.bin
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
+
+# https://github.com/salrashid123/tpm2genkey
+go run cmd/main.go  --mode=tpm2pem --public=/tmp/ec.pub --private=/tmp/ec.prv --out=/tmp/ectpm.pem  --tpm-path="127.0.0.1:2321"
+
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
+openssl ec -provider tpm2  -provider default -in ectpm.pem --text
+
+
+openssl dgst -binary -sha256 data.bin > hash.txt
+openssl pkeyutl  -provider tpm2  -provider default -sign  -pkeyopt digest:sha256  -inkey ectpm.pem  -in hash.txt > data.sign
+openssl dgst -provider tpm2  -provider default -verify ectpmpub.pem  -sha256 -signature data.sign data.bin
+```
+
+#### AES
+
+```bash
+openssl rand 16 > sym.key
+tpm2_import -C primary.ctx -G aes -i sym.key -u aes.pub -r aes.prv
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l  
+tpm2_load -C primary.ctx -u aes.pub -r aes.prv -c aes.ctx  
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l  
+echo "foo" > secret.dat
+openssl rand  -out iv.bin 16
+
+
+tpm2_encryptdecrypt -Q --iv iv.bin -G cfb -c aes.ctx -o encrypt.out secret.dat
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l  
+tpm2_encryptdecrypt -Q --iv iv.bin -G cfb -c aes.ctx -d -o decrypt.out encrypt.out
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l   
+
+
+openssl enc -d -aes-128-cfb   -in encrypt.out  -iv `xxd -p iv.bin` -nosalt  -K `xxd -c 256 -p sym.key`
+
+# https://github.com/salrashid123/tpm2genkey
+go run cmd/main.go  --mode=tpm2pem --public=/tmp/aes.pub --private=/tmp/aes.prv --out=/tmp/aestpm.pem  --tpm-path="127.0.0.1:2321"
+
+### openssl does not support loading and using AES PEM keys
+
+```
+
+#### HMAC
+
+```bash
+echo -n "change this password to a secret"  > hkey.dat
+
+echo -n "change this password to a secret" | xxd -p -c 100
+      6368616e676520746869732070617373776f726420746f206120736563726574
+
+echo -n foo > data.in
+openssl dgst -sha256 -mac hmac -macopt hexkey:6368616e676520746869732070617373776f726420746f206120736563726574 data.in
+           HMAC-SHA256(data.in)= 7c50506d993b4a10e5ae6b33ca951bf2b8c8ac399e0a34026bb0ac469bea3de2
+
+tpm2_import -C primary.ctx -G hmac -i hkey.dat -u hmac.pub -r hmac.prv
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l  
+tpm2_load -C primary.ctx -u hmac.pub -r hmac.prv -c hmac.ctx  
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l  
+
+cat /tmp/data.in | tpm2_hmac -g sha256 -c hmac.ctx | xxd -p -c 256
+
+# https://github.com/salrashid123/tpm2genkey
+go run cmd/main.go  --mode=tpm2pem --public=/tmp/hmac.pub --private=/tmp/hmac.prv --out=/tmp/hmactpm.pem  --tpm-path="127.0.0.1:2321"
+
+### openssl does not support loading and using hmac PEM keys
+```
