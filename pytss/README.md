@@ -26,6 +26,7 @@ python3 -m pip install tpm2-pytss
 - `esapi_keyfile.py`: create and use PEM encoded keyfiles
 - `esapi_auth.py`: create key with auth password
 - `esapi_pcr.py`: create key with pcrpolicy
+- `esapi_session_encryption.py`:  encrypted sessions
 
 - `fapi_create_sign.py`: create rsa key and sign/verify
 - `fapi_seal_unseal.py`: seal/unseal 
@@ -37,6 +38,15 @@ python3 -m pip install tpm2-pytss
 ### Policy JSON
 
 [JSON Data Types and Policy Language Specification](https://trustedcomputinggroup.org/resource/tcg-tss-json/)
+
+
+### ESAPI Session Encryption
+
+```bash
+$ python3 esapi_session_encryption.py 
+61169f83e057715b
+
+```
 
 ### FAPI Session Encryption
 
