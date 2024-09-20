@@ -1,28 +1,18 @@
 from tpm2_pytss import *
-
+from tpm2_pytss.internal.templates import _ek
 
 ectx = ESAPI(tcti="swtpm:port=2321")
 ectx.startup(TPM2_SU.CLEAR)
 
+## use the ek rsa as the encryption basis
+nv, tmpl = _ek.EK_RSA2048
 
-inPublic = TPM2B_PUBLIC(
-            TPMT_PUBLIC.parse(
-                alg="rsa2048",
-                objectAttributes=TPMA_OBJECT.USERWITHAUTH
-                | TPMA_OBJECT.RESTRICTED
-                | TPMA_OBJECT.DECRYPT
-                | TPMA_OBJECT.FIXEDTPM
-                | TPMA_OBJECT.FIXEDPARENT
-                | TPMA_OBJECT.SENSITIVEDATAORIGIN,
-            )
-)
+inSensitive = TPM2B_SENSITIVE_CREATE()
+handle, outpub, _, _, _ = ectx.create_primary(inSensitive,tmpl ,ESYS_TR.ENDORSEMENT)
 
-inSensitive = TPM2B_SENSITIVE_CREATE(
-            TPMS_SENSITIVE_CREATE(userAuth=TPM2B_AUTH(""))
-    )
-handle, _, _, _, _ = ectx.create_primary(inSensitive, inPublic)
+n = ectx.tr_get_name(handle)
 
-
+print(bytes(n).hex())
 session = ectx.start_auth_session(
     tpm_key=handle,
     bind=ESYS_TR.NONE,
