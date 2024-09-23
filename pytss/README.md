@@ -26,7 +26,11 @@ python3 -m pip install tpm2-pytss
 - `esapi_keyfile.py`: create and use PEM encoded keyfiles
 - `esapi_auth.py`: create key with auth password
 - `esapi_pcr.py`: create key with pcrpolicy
-- `esapi_session_encryption.py`:  encrypted sessions
+- `esapi_session_encryption_auth.py`:  encrypted sessions with password AES
+- `esapi_session_encryption_pcr.py`: encrypted sessions with pcr policy AES
+- `esapi_session_encryption_authvalue_pcr_aes.py`:  encrypted sessions with pcr and authvalue AES
+- `esapi_session_encryption_authvalue_pcr_rsa.py`:  encrypted sessions with pcr and authvalue RSA
+- `esapi_tpm2.py`: load key created using tpm2_tools
 
 - `fapi_create_sign.py`: create rsa key and sign/verify
 - `fapi_seal_unseal.py`: seal/unseal 
@@ -41,14 +45,6 @@ python3 -m pip install tpm2-pytss
 
 
 ### ESAPI Session Encryption
-
-```bash
-$ python3 esapi_session_encryption.py 
-61169f83e057715b
-
-```
-
-### FAPI Session Encryption
 
 From : [TCG_CPU_TPM_Bus_Protection_Guidance_Passive_Attack_Mitigation](https://trustedcomputinggroup.org/wp-content/uploads/TCG_CPU_TPM_Bus_Protection_Guidance_Passive_Attack_Mitigation_8May23-3.pdf)
 

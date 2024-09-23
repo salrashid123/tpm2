@@ -41,7 +41,6 @@ priv, pub, _, _, _ = ectx.create(primary1, inSensitive, inPublicRSA)
 childHandle = ectx.load(primary1, priv, pub)
 ectx.flush_context(primary1)
 
-digest = sha256(b"fff")
 scheme = TPMT_SIG_SCHEME(scheme=TPM2_ALG.RSASSA)
 scheme.details.any.hashAlg = TPM2_ALG.SHA256
 validation = TPMT_TK_HASHCHECK(tag=TPM2_ST.HASHCHECK, hierarchy=TPM2_RH.OWNER)
