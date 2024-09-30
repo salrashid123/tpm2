@@ -94,16 +94,38 @@ tpm2_nvread -s 1422  -C o $TPM2_EK_NV_INDEX |  openssl x509 --inform DER -text -
 
 
 
-5) Load AK Key from NV index
+===============
 
-```golang
-	// NV Indices holding GCE AK Templates
-	const (
-		GceAKTemplateNVIndexRSA uint32 = 0x01c10001
-		GceAKTemplateNVIndexECC uint32 = 0x01c10003
-	)
+5) Write and Read from NV
+
+```bash
+go run nv_basic/main.go
 ```
 
-```
-go run main.go  --v=10 -alsologtostderr
+6) Read NV as buffers
+
+
+
+```bash
+#### constants at: https://pkg.go.dev/github.com/google/go-tpm-tools/client#pkg-constants
+
+# gcloud compute instances create instance-1 \
+#     --zone=us-central1-a \
+#     --machine-type=n2d-standard-2  --min-cpu-platform="AMD Milan" \
+#     --shielded-secure-boot --no-service-account --no-scopes \
+#     --shielded-vtpm \
+#     --shielded-integrity-monitoring \
+#     --confidential-compute
+
+
+# $  gcloud compute instances get-shielded-identity  instance-1
+
+
+# TPM2_EK_NV_INDEX=0x1c10000
+# tpm2_nvreadpublic | sed -n -e "/""$TPM2_EK_NV_INDEX""/,\$p" | sed -e '/^[ \r\n\t]*$/,$d' | grep "size" | sed 's/.*size.*://' | sed -e 's/^[[:space:]]*//' | sed -e 's/[[:space:]]$//'
+#  1516
+# tpm2_nvread -s 1516  -C o $TPM2_EK_NV_INDEX |  openssl x509 --inform DER -text -noout  -in -
+
+
+go run nv_buffer/main.go
 ```

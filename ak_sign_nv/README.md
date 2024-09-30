@@ -1,79 +1,154 @@
 Sign with AK saved to NV
 
 
-https://pkg.go.dev/github.com/google/go-tpm-tools/client#EndorsementKeyFromNvIndex
+GCP ShieldedVMs saves an attestation signing key to NV at in
 
+https://pkg.go.dev/github.com/google/go-tpm-tools/client#pkg-constants
 
-
-
-for GCE VMs
 
 ```golang
 const (
-	tpmDevice             = "/dev/tpm0"
-	signCertNVIndex       = 0x01c10000
-	signKeyNVIndex        = 0x01c10001
-	encryptionCertNVIndex = 0x01c00002
-	emptyPassword         = ""
+	// RSA 2048 AK.
+	GceAKCertNVIndexRSA     uint32 = 0x01c10000
+	GceAKTemplateNVIndexRSA uint32 = 0x01c10001
+	// ECC P256 AK.
+	GceAKCertNVIndexECC     uint32 = 0x01c10002
+	GceAKTemplateNVIndexECC uint32 = 0x01c10003
 )
 ```
 
 ---
 
 ```bash
-# go run main.go 
-
 go run main.go 
-2023/07/13 12:40:19 ======= Init  ========
-2023/07/13 12:40:19 0 handles flushed
-2023/07/13 12:40:19      Load SigningKey and Certifcate 
-2023/07/13 12:40:19      Signing PEM 
------BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtvr8f4lOUaHIMDoC9Baq
-sLs2Irh1RrKmTbgf/cWZHvhCQUT3qGGB5gqI96/efF3pCKx/KL9tYpJ7iQ3TpJhv
-E8sG+bfxA3qvoDXIzO8bsAPyEp6c77UfvHkasi4cKZP2kBIURy/TwOSeZco7qU51
-V10pL4kcw8J0CeDr4KKap6m4gWXcdo4rOpRMy62bBRIaxWEbPrAlotHSoD6hvtlT
-W0zBhs4zFrau+85YZNuobvvkPoZho/NosLKqNZ2gb2/ueY/mU0uAPhhtHtk7KWiN
-p5iSqcWHyrzU/tZ3LwiRB/vOxeQhWH3+o3BJPU0z9Dm+5fFlO6Se4hm1/S8VxYZ4
-owIDAQAB
------END PUBLIC KEY-----
-2023/07/13 12:40:19      AK Signed Data using go-tpm-tools SZYhgbIjBQM8XZ6wzlMQqTqqLotzJ4z3aY15pn/dU6gCeuhE69DfbJW6GJUpoBrEE5SzZ2E7PLvQhBzhUeCpE1u5nosbrBRoAdOmpR1GdBRz7Jgi+wtnMFVCcLvB96YmUEXrQP6S/z54x+z3nDCbOG5imcBGvpUkWMdL0sMr7X3mq1M3nXItdc92Rens4vVGGvbk17UazPyiC4rXJZTN+abL7GO8nET4QUt+TtvjBeXwKXPpQVL5tfzskUkHLscyaAWMZe5F60VTc+n6Ww7U4ra5L9njYa/kJAmYw9aHfjEnN8JxGhWInZDY7sMM9xBT6pqmmoJFC5S9nw2o7DFk4w==
-2023/07/13 12:40:19      Signature Verified
-2023/07/13 12:40:19 akPub Name: 0001000b00050072000000100014000b0800000000000100b6fafc7f894e51a1c8303a02f416aab0bb3622b87546b2a64db81ffdc5991ef8424144f7a86181e60a88f7afde7c5de908ac7f28bf6d62927b890dd3a4986f13cb06f9b7f1037aafa035c8ccef1bb003f2129e9cefb51fbc791ab22e1c2993f6901214472fd3c0e49e65ca3ba94e75575d292f891cc3c27409e0ebe0a29aa7a9b88165dc768e2b3a944ccbad9b05121ac5611b3eb025a2d1d2a03ea1bed9535b4cc186ce3316b6aefbce5864dba86efbe43e8661a3f368b0b2aa359da06f6fee798fe6534b803e186d1ed93b29688da79892a9c587cabcd4fed6772f089107fbcec5e421587dfea370493d4d33f439bee5f1653ba49ee219b5fd2f15c58678a3
-2023/07/13 12:40:19      AK Issued Hash w6uP8Tcg6K2QR905Rms8iXTlksL6OD1KOWBxTK7wxPI=
-2023/07/13 12:40:19      AK Signed Data using go-tpm SZYhgbIjBQM8XZ6wzlMQqTqqLotzJ4z3aY15pn/dU6gCeuhE69DfbJW6GJUpoBrEE5SzZ2E7PLvQhBzhUeCpE1u5nosbrBRoAdOmpR1GdBRz7Jgi+wtnMFVCcLvB96YmUEXrQP6S/z54x+z3nDCbOG5imcBGvpUkWMdL0sMr7X3mq1M3nXItdc92Rens4vVGGvbk17UazPyiC4rXJZTN+abL7GO8nET4QUt+TtvjBeXwKXPpQVL5tfzskUkHLscyaAWMZe5F60VTc+n6Ww7U4ra5L9njYa/kJAmYw9aHfjEnN8JxGhWInZDY7sMM9xBT6pqmmoJFC5S9nw2o7DFk4w==
-2023/07/13 12:40:19      Signature Verified
 
+2024/09/29 16:33:45 ======= Init  ========
+2024/09/29 16:33:45 ======= createPrimary RSAEKTemplate ========
+2024/09/29 16:33:45 Name: 000b13c9615918f396faf0ac6e33167b022ee40b0ed904085441fd1a80693957c234
+2024/09/29 16:33:45 Size: 280
+2024/09/29 16:33:45 TPM Max NV buffer 2048
+2024/09/29 16:33:46 Name 000b3c0b72958f92ee317cb8342a0a0dc00b5adab50489a87e87013cfee63f48ed52
+2024/09/29 16:33:46 GCE AKPublic: 
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0obmoOlJRkRRTGsnr5Kv
+AUVDcr0RSxltnN7VpXaRnZ0+4fmIx3FHyFyFfbp1w1ajzCCJoIf8cGLh8fn4jqF1
+8/AvNTC5eemwhThyMjoqMpFqOWs9U2Z4vE3Irfz/+C48tDL39Y0Fr6eBu5gyas3E
+w2KnCoYvuqXWNYRgE6U1+rguj/+xycjtB7VQIjBda8jDvjqqRcqe/3o6G2ZTcEsd
+2BmuReLaeRd8/lcqX3j897PNiJVTXuQRVeetUM6iaykP6TYQhBVQDGgPfkRZQtnF
+dLk/AdM/ZJQ/GJnW+1uZZ5jsBi5h6SkboqOCERyXEW4M6JbPRC4zGNvz0Hk663qS
+kQIDAQAB
+-----END PUBLIC KEY-----
+2024/09/29 16:33:46 ======= generate test signature with RSA key ========
+2024/09/29 16:33:46 signature: hL9RDh0Oj9wMane9pnucQtlG4Iqhl0snahvp3LFMnvSqI9y84M31boc6yOwz8rKrKYTifZaFyiIHsRW/J3zg2wv6R1uGE/PBiFFv9EgInGtMc5xA4z/qKuaWul67OUhNd3PimraSME20keI9lKXIi1a9+TOThYBqWCDXUdcCbWHylIlZG/qCnf5PkE709iw4zX9BTaPgR+IPggjmCBp5g/b5xRnPASVOKuqx9aO76j+K3nK36W88eYJkWAlrITXGel/UawsDpdC8vxAYPOSWq2jKJmp8f1vRl2XqFg/uMvrf0Uy4pCTD8WoFZbCP64C6CnDxMLd1EslMewI/CBJieA==
 ```
 
 
 Note the signingKey public cert is matches the one derived from the ek in NVRAM
 
 ```bash
-$ $ gcloud compute instances get-shielded-identity attestor
+ gcloud compute instances create instance-cc \
+     --zone=us-central1-a \
+     --machine-type=n2d-standard-2  --min-cpu-platform="AMD Milan" \
+     --shielded-secure-boot --no-service-account --no-scopes \
+     --shielded-vtpm \
+     --shielded-integrity-monitoring \
+     --confidential-compute
+
+ $  gcloud compute instances get-shielded-identity  instance-cc
+
 
 encryptionKey:
+  ekCert: |
+    -----BEGIN CERTIFICATE-----
+    MIIF6TCCA9GgAwIBAgIUAMStf+N+uiNFNTGXvUCUB94g/xIwDQYJKoZIhvcNAQEL
+    BQAwgYYxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpDYWxpZm9ybmlhMRYwFAYDVQQH
+    Ew1Nb3VudGFpbiBWaWV3MRMwEQYDVQQKEwpHb29nbGUgTExDMRUwEwYDVQQLEwxH
+    b29nbGUgQ2xvdWQxHjAcBgNVBAMTFUVLL0FLIENBIEludGVybWVkaWF0ZTAgFw0y
+    NDA1MDgxMTI5MDRaGA8yMDU0MDUwMTExMjkwM1owbTEWMBQGA1UEBxMNdXMtY2Vu
+    dHJhbDEtYTEeMBwGA1UEChMVR29vZ2xlIENvbXB1dGUgRW5naW5lMRYwFAYDVQQL
+    Ew1zcmFzaGlkLXRlc3QyMRswGQYDVQQDExI1MTExMzMwNjE1ODI2MTAxNzcwggEi
+    MA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDtTp3yrHeM1hzNT9hQ7CDJaBJB
+    K9FGJNXn3reV9QVORst+ZvEJuyPKxUyklMOx47olOc3uiCZEvwCOAp7ezAeTqx8z
+    X+lWdMtFvp8YA1TTjfLwnd1TJGDqfdvaZR9t8Jwft9bBUwiTpmnPBDmXghvAPuDk
+    RZkNNWTI80LXYxkUWjOTnTqA9AlZfPMzs34OrS2OQqEGTKB7CIqH6djzCaBtHfXH
+    f+SnyxK2osRtaCy2lkoSrbQAm7H80V3Cpe1JGbBuJUOrAiyfmquYQI1bQ5nflZiY
+    ZVqMA5x2VdxZTN7KHiXju630ZtiycBfySTGl9Dh9McfCaE1J9LhPBDAMFIz7AgMB
+    AAGjggFjMIIBXzAOBgNVHQ8BAf8EBAMCBSAwDAYDVR0TAQH/BAIwADAdBgNVHQ4E
+    FgQUkQmF6by+ZA8sy1c1V/Da2v0OXoEwHwYDVR0jBBgwFoAUZ8O73ljj1lF2j7Ma
+    PtsHp+yTeuQwgY0GCCsGAQUFBwEBBIGAMH4wfAYIKwYBBQUHMAKGcGh0dHA6Ly9w
+    cml2YXRlY2EtY29udGVudC02NWQ1M2IxNC0wMDAwLTIxMmEtYTYzMy04ODNkMjRm
+    NTdiYjguc3RvcmFnZS5nb29nbGVhcGlzLmNvbS8wYzNlNzllYjA4OThkMDJlYmIw
+    YS9jYS5jcnQwbwYKKwYBBAHWeQIBFQRhMF8MDXVzLWNlbnRyYWwxLWECBgCk6UWf
+    4AwNc3Jhc2hpZC10ZXN0MgIIBxfoz7iW3wEMC2luc3RhbmNlLWNjoCAwHqADAgEA
+    oQMBAf+iAwEB/6MDAQEApAMBAQClAwEBADANBgkqhkiG9w0BAQsFAAOCAgEAeuUM
+    AO4h4WeDFYS0sT3hROXg/Kzj5gZDD1FZC+voe8nqUi1bPAJ9TiWYScI6KPlI6pgy
+    7JxuNm2FHmHpu3RX+YzBtXvguC4lulLGo8RE0zRhOKzvy6gq3eKblrfreHHoUdCF
+    2Ju4teYT+IbZUMya44eRm3VqmLRDSrDAdJpegYgTfNbOeAShtvRWqkq/3mkPocQp
+    VDgAOSVqz0t0fhhIwuYLwpPuJqEzRCVmcIY9dBHIQUBbD82SmwMFeCKfd/syvjXr
+    84AqmL2y+xvVz8C8pjKWzM70S8iHfZr0hC532c7hOAaVNPFgPZFJniJV2jBM1tQY
+    MweHPnq7YIp3Pp18k0ec8YvXvYuHBMIw+qWE0tdHrKPiDD8lgZAhXXnOf8+QuLl7
+    UZ+8FdjMxG5mn/CQPMng4GojBEMK+ZfL5VM+L0mBYPg4LxSsFRMhIsITNXR1z8HV
+    0yRGyzPmMGEhqv3x4DzARsfC2fmOfirWbNfY3pnzPfNeWV5XPXlk6clhYJIklN0X
+    5WVp2WmX9cY5F8ZTbrQZFm3KZmI3WB+JbcSTXChE7RJQtn1qTU77Z1jiS7D7vzsh
+    l8wiu6P+1duFm4iHqQLTkPNQAzZieMYcGutzGuWTDbf7cP/Wg4/fAImUh/ENgzJs
+    3TclDZMd8oy+WSUa9KeNTdNV9Nxp74u/1q3f1zY=
+    -----END CERTIFICATE-----
   ekPub: |
     -----BEGIN PUBLIC KEY-----
-    MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyLLB37zQTi3KfKridPpY
-    tj9yKm0ci/QUGqrzBsVVqxqOsQUxocsaKMZPIO7VxJlJd8KHWMoGY6f1VOdNUFCN
-    ufg5WMqA/t6rXvjF4NtPTvR05dCV4JegBBDnOjF9NgmV67+NgAm3afq/Z1qvJ336
-    WUop2prbTWpseNtdlp2+4TOBSsNZgsum3CFr40qIsa2rb9xFDrqoMTVkgKGpJk+z
-    ta+pcxGXYFJfU9sb7F7cs3e+TzjucGFcpVEiFzVq6Mga8cmh32sufM/PuifVYSLi
-    BYV4s4c53gVq7v0Oda9LqaxT2A9EmKopcWUU8CEgbsBxhmVAhsnKwLDmJYKULkAk
-    uwIDAQAB
+    MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7U6d8qx3jNYczU/YUOwg
+    yWgSQSvRRiTV5963lfUFTkbLfmbxCbsjysVMpJTDseO6JTnN7ogmRL8AjgKe3swH
+    k6sfM1/pVnTLRb6fGANU043y8J3dUyRg6n3b2mUfbfCcH7fWwVMIk6ZpzwQ5l4Ib
+    wD7g5EWZDTVkyPNC12MZFFozk506gPQJWXzzM7N+Dq0tjkKhBkygewiKh+nY8wmg
+    bR31x3/kp8sStqLEbWgstpZKEq20AJux/NFdwqXtSRmwbiVDqwIsn5qrmECNW0OZ
+    35WYmGVajAOcdlXcWUzeyh4l47ut9GbYsnAX8kkxpfQ4fTHHwmhNSfS4TwQwDBSM
+    +wIDAQAB
     -----END PUBLIC KEY-----
 kind: compute#shieldedInstanceIdentity
 signingKey:
+  ekCert: |
+    -----BEGIN CERTIFICATE-----
+    MIIF6DCCA9CgAwIBAgITd8Qu+l4xIAJND4fAVtCM6GEVoDANBgkqhkiG9w0BAQsF
+    ADCBhjELMAkGA1UEBhMCVVMxEzARBgNVBAgTCkNhbGlmb3JuaWExFjAUBgNVBAcT
+    DU1vdW50YWluIFZpZXcxEzARBgNVBAoTCkdvb2dsZSBMTEMxFTATBgNVBAsTDEdv
+    b2dsZSBDbG91ZDEeMBwGA1UEAxMVRUsvQUsgQ0EgSW50ZXJtZWRpYXRlMCAXDTI0
+    MDUwODExMjkwNFoYDzIwNTQwNTAxMTEyOTAzWjBtMRYwFAYDVQQHEw11cy1jZW50
+    cmFsMS1hMR4wHAYDVQQKExVHb29nbGUgQ29tcHV0ZSBFbmdpbmUxFjAUBgNVBAsT
+    DXNyYXNoaWQtdGVzdDIxGzAZBgNVBAMTEjUxMTEzMzA2MTU4MjYxMDE3NzCCASIw
+    DQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBANKG5qDpSUZEUUxrJ6+SrwFFQ3K9
+    EUsZbZze1aV2kZ2dPuH5iMdxR8hchX26dcNWo8wgiaCH/HBi4fH5+I6hdfPwLzUw
+    uXnpsIU4cjI6KjKRajlrPVNmeLxNyK38//guPLQy9/WNBa+ngbuYMmrNxMNipwqG
+    L7ql1jWEYBOlNfq4Lo//scnI7Qe1UCIwXWvIw746qkXKnv96OhtmU3BLHdgZrkXi
+    2nkXfP5XKl94/PezzYiVU17kEVXnrVDOomspD+k2EIQVUAxoD35EWULZxXS5PwHT
+    P2SUPxiZ1vtbmWeY7AYuYekpG6KjghEclxFuDOiWz0QuMxjb89B5Out6kpECAwEA
+    AaOCAWMwggFfMA4GA1UdDwEB/wQEAwIHgDAMBgNVHRMBAf8EAjAAMB0GA1UdDgQW
+    BBSAZdimnJWcVzMDvhXc5QgGflBmQTAfBgNVHSMEGDAWgBQEbnNYMsSlysI5BP4z
+    e1lAYGjItDCBjQYIKwYBBQUHAQEEgYAwfjB8BggrBgEFBQcwAoZwaHR0cDovL3By
+    aXZhdGVjYS1jb250ZW50LTY1ZDcwM2M0LTAwMDAtMmJiNS04YzYwLTI0MDU4ODcy
+    N2E3OC5zdG9yYWdlLmdvb2dsZWFwaXMuY29tLzE0MTI4NGMxMThlZWRhZWMwOWY5
+    L2NhLmNydDBvBgorBgEEAdZ5AgEVBGEwXwwNdXMtY2VudHJhbDEtYQIGAKTpRZ/g
+    DA1zcmFzaGlkLXRlc3QyAggHF+jPuJbfAQwLaW5zdGFuY2UtY2OgIDAeoAMCAQCh
+    AwEB/6IDAQH/owMBAQCkAwEBAKUDAQEAMA0GCSqGSIb3DQEBCwUAA4ICAQB/VkLM
+    xyELCTixIALvqAozQqfNuOh9d6cNnVcBBUv3SV8CSKLP/YWcvVR2IOvDIPBj+PcR
+    F1A6vQWFsiDiCuFx3nOuy1Co9G9Kb68EMNcMF4TqbrX4EUDvMbZZGrBawMJ4jXct
+    UDw3bwQOOJg8eB3cOzyzJM9RRzlPfLClWaTbPMAsJ1gZmyxLnrvqW7B3zgQ9NBOg
+    LSDAdGD1s74mQM52vwlRapqbwQfrMPZWrIdyp+rWKL/3Q3XDaEJofgDuJCKhnoRQ
+    IJDK/MyCjzCM/UO6E70RBicIPAFJSanvM+DbrK4ivO6l92AkPolDAkatSJNSQZNh
+    CgCCVJLzzX2jWLf9Y39R5oewx27J8vCmbJa3L/jl9ZrFCgEZolEpiTq+Xl3BlDPr
+    d1m32g/zVP5YvPfO3Krx0eMEEUPE0EY+9KCz75RGEZKHkNeRN2b36F+w5BvFYuLp
+    cI0sfnnR997Gv9Da3xoXXraOYAQe56+AP/fwBEAeLqK2QqQ0wzAa0fTVFoNQDuyL
+    zIT+fXNCcj369Sgj9NtFD0l+/ndLpXnf+hC8Nk67AbMAKjcTHRVRDK5nQNME23oW
+    42OtkVLMb3dlymL+lh9BkCSxh232co26PTc4MumILGjNr9CLaAHdOrqRKTS7G66u
+    qIPDal8msW/+EAr4Eks27BMhyeca7IO/u9BeNw==
+    -----END CERTIFICATE-----
   ekPub: |
     -----BEGIN PUBLIC KEY-----
-    MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtvr8f4lOUaHIMDoC9Baq
-    sLs2Irh1RrKmTbgf/cWZHvhCQUT3qGGB5gqI96/efF3pCKx/KL9tYpJ7iQ3TpJhv
-    E8sG+bfxA3qvoDXIzO8bsAPyEp6c77UfvHkasi4cKZP2kBIURy/TwOSeZco7qU51
-    V10pL4kcw8J0CeDr4KKap6m4gWXcdo4rOpRMy62bBRIaxWEbPrAlotHSoD6hvtlT
-    W0zBhs4zFrau+85YZNuobvvkPoZho/NosLKqNZ2gb2/ueY/mU0uAPhhtHtk7KWiN
-    p5iSqcWHyrzU/tZ3LwiRB/vOxeQhWH3+o3BJPU0z9Dm+5fFlO6Se4hm1/S8VxYZ4
-    owIDAQAB
+    MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0obmoOlJRkRRTGsnr5Kv
+    AUVDcr0RSxltnN7VpXaRnZ0+4fmIx3FHyFyFfbp1w1ajzCCJoIf8cGLh8fn4jqF1
+    8/AvNTC5eemwhThyMjoqMpFqOWs9U2Z4vE3Irfz/+C48tDL39Y0Fr6eBu5gyas3E
+    w2KnCoYvuqXWNYRgE6U1+rguj/+xycjtB7VQIjBda8jDvjqqRcqe/3o6G2ZTcEsd
+    2BmuReLaeRd8/lcqX3j897PNiJVTXuQRVeetUM6iaykP6TYQhBVQDGgPfkRZQtnF
+    dLk/AdM/ZJQ/GJnW+1uZZ5jsBi5h6SkboqOCERyXEW4M6JbPRC4zGNvz0Hk663qS
+    kQIDAQAB
     -----END PUBLIC KEY-----
 
 ```

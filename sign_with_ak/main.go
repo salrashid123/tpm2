@@ -3,6 +3,7 @@ package main
 import (
 	"crypto"
 	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
@@ -21,7 +22,7 @@ import (
 const ()
 
 var (
-	tpmPath = flag.String("tpm-path", "simulator", "Path to the TPM device (character device or a Unix socket).")
+	tpmPath = flag.String("tpm-path", "/dev/tpmrm0", "Path to the TPM device (character device or a Unix socket).")
 	secret  = flag.String("secret", "meet me at...", "secret")
 )
 
@@ -52,49 +53,65 @@ func main() {
 
 	rwr := transport.FromReadWriter(rwc)
 
-	log.Printf("======= createPrimary RSAEKTemplate ========")
+	log.Printf("======= EK ========")
 
-	primaryKey, err := tpm2.CreatePrimary{
+	cCreateEK, err := tpm2.CreatePrimary{
 		PrimaryHandle: tpm2.TPMRHEndorsement,
 		InPublic:      tpm2.New2B(tpm2.RSAEKTemplate),
 	}.Execute(rwr)
 	if err != nil {
-		log.Fatalf("can't create primary %v", err)
+		log.Fatalf("can't create object TPM %q: %v", *tpmPath, err)
 	}
 
 	defer func() {
 		flushContextCmd := tpm2.FlushContext{
-			FlushHandle: primaryKey.ObjectHandle,
+			FlushHandle: cCreateEK.ObjectHandle,
 		}
-		_, _ = flushContextCmd.Execute(rwr)
+		_, err := flushContextCmd.Execute(rwr)
+		if err != nil {
+			log.Fatalf("can't close TPM %q: %v", *tpmPath, err)
+		}
 	}()
 
-	log.Printf("primaryKey Name %s\n", hex.EncodeToString(primaryKey.Name.Buffer))
+	// read from handle
+	// cCreateGCEEK, err := tpm2.ReadPublic{
+	// 	ObjectHandle: tpm2.TPMHandle(EKReservedHandle),
+	// }.Execute(rwr)
+	// if err != nil {
+	// 	log.Fatalf("can't create object TPM %q: %v", *tpmPath, err)
+	// }
+	log.Printf("Name %s\n", hex.EncodeToString(cCreateEK.Name.Buffer))
 
-	pub, err := primaryKey.OutPublic.Contents()
+	rsaEKpub, err := cCreateEK.OutPublic.Contents()
 	if err != nil {
 		log.Fatalf("Failed to get rsa public: %v", err)
 	}
-	rsaDetail, err := pub.Parameters.RSADetail()
+	rsaEKDetail, err := rsaEKpub.Parameters.RSADetail()
 	if err != nil {
 		log.Fatalf("Failed to get rsa details: %v", err)
 	}
-	rsaUnique, err := pub.Unique.RSA()
+	rsaEKUnique, err := rsaEKpub.Unique.RSA()
 	if err != nil {
 		log.Fatalf("Failed to get rsa unique: %v", err)
 	}
 
-	primaryRsaPub, err := tpm2.RSAPub(rsaDetail, rsaUnique)
+	primaryRsaEKPub, err := tpm2.RSAPub(rsaEKDetail, rsaEKUnique)
 	if err != nil {
 		log.Fatalf("Failed to get rsa public key: %v", err)
 	}
 
+	b4, err := x509.MarshalPKIXPublicKey(primaryRsaEKPub)
+	if err != nil {
+		log.Fatalf("Unable to convert rsaGCEAKPub: %v", err)
+	}
+
 	block := &pem.Block{
 		Type:  "PUBLIC KEY",
-		Bytes: primaryRsaPub.N.Bytes(),
+		Bytes: b4,
 	}
-	primaryPEMByte := pem.EncodeToMemory(block)
-	log.Printf("RSA Primary \n%s\n", string(primaryPEMByte))
+	primaryEKPEMByte := pem.EncodeToMemory(block)
+
+	log.Printf("RSA createPrimary public \n%s\n", string(primaryEKPEMByte))
 
 	sess, cleanup1, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16)
 	if err != nil {
@@ -102,7 +119,6 @@ func main() {
 	}
 	defer func() {
 		cleanup1()
-
 	}()
 
 	_, err = tpm2.PolicySecret{
@@ -114,6 +130,7 @@ func main() {
 		log.Fatalf("error executing PolicySecret: %v", err)
 	}
 
+	// https://github.com/google/go-attestation/blob/f203ad309099f8efdef5f222d974fb8a2a8c1cd1/attest/tpm.go#L51
 	rt := tpm2.TPMTPublic{
 		Type:    tpm2.TPMAlgRSA,
 		NameAlg: tpm2.TPMAlgSHA256,
@@ -124,6 +141,7 @@ func main() {
 			UserWithAuth:        true,
 			Restricted:          true,
 			SignEncrypt:         true,
+			NoDA:                true,
 		},
 		Parameters: tpm2.NewTPMUPublicParms(
 			tpm2.TPMAlgRSA,
@@ -143,8 +161,8 @@ func main() {
 	}
 	rsaKeyResponse, err := tpm2.CreateLoaded{
 		ParentHandle: tpm2.AuthHandle{
-			Handle: primaryKey.ObjectHandle,
-			Name:   primaryKey.Name,
+			Handle: cCreateEK.ObjectHandle,
+			Name:   cCreateEK.Name,
 			Auth:   sess,
 		},
 		InPublic: tpm2.New2BTemplate(&rt),
@@ -183,7 +201,7 @@ func main() {
 		Bytes: rrsaPub.N.Bytes(),
 	}
 	keyPEMByte := pem.EncodeToMemory(block)
-	log.Printf("RSA Key \n%s\n", string(keyPEMByte))
+	log.Printf("RSA Attestation Key \n%s\n", string(keyPEMByte))
 
 	// *****************************************************
 

@@ -3,180 +3,264 @@ package main
 import (
 	"crypto"
 	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"flag"
+	"io"
 	"log"
+	"net"
+	"slices"
 
-	"github.com/google/go-tpm-tools/client"
-	//"github.com/google/go-tpm/tpm2"
-	"github.com/google/go-tpm/legacy/tpm2"
+	"github.com/google/go-tpm-tools/simulator"
+	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/google/go-tpm/tpmutil"
 )
 
 const (
-	tpmDevice = "/dev/tpm0"
-	// handles https://github.com/google/go-tpm-tools/blob/master/client/handles.go#L36-L43
-	emptyPassword = ""
+	GceAKTemplateNVIndexRSA uint32 = 0x01c10001
 )
 
 var (
-	handleNames = map[string][]tpm2.HandleType{
-		"all":       {tpm2.HandleTypeLoadedSession, tpm2.HandleTypeSavedSession, tpm2.HandleTypeTransient},
-		"loaded":    {tpm2.HandleTypeLoadedSession},
-		"saved":     {tpm2.HandleTypeSavedSession},
-		"transient": {tpm2.HandleTypeTransient},
-	}
-
-	tpmPath = flag.String("tpm-path", "/dev/tpm0", "Path to the TPM device (character device or a Unix socket).")
+	tpmPath = flag.String("tpm-path", "/dev/tpmrm0", "Path to the TPM device (character device or a Unix socket).")
+	secret  = flag.String("secret", "meet me at...", "secret")
 )
 
-func main() {
+var TPMDEVICES = []string{"/dev/tpm0", "/dev/tpmrm0"}
 
+func OpenTPM(path string) (io.ReadWriteCloser, error) {
+	if slices.Contains(TPMDEVICES, path) {
+		return tpmutil.OpenTPM(path)
+	} else if path == "simulator" {
+		return simulator.GetWithFixedSeedInsecure(1073741825)
+	} else {
+		return net.Dial("tcp", path)
+	}
+}
+
+func main() {
 	flag.Parse()
+
 	log.Println("======= Init  ========")
 
-	rwc, err := tpm2.OpenTPM(*tpmPath)
+	rwc, err := OpenTPM(*tpmPath)
 	if err != nil {
-		log.Fatalf("can't open TPM %q: %v", tpmPath, err)
+		log.Fatalf("can't open TPM %q: %v", *tpmPath, err)
 	}
 	defer func() {
-		if err := rwc.Close(); err != nil {
-			log.Fatalf("%v\ncan't close TPM %q: %v", tpmPath, err)
+		rwc.Close()
+	}()
+
+	rwr := transport.FromReadWriter(rwc)
+
+	log.Printf("======= createPrimary RSAEKTemplate ========")
+
+	// read from template
+	// cCreateGCEEK, err := tpm2.CreatePrimary{
+	// 	PrimaryHandle: tpm2.TPMRHEndorsement,
+	// 	InPublic:      tpm2.New2B(tpm2.RSAEKTemplate),
+	// }.Execute(rwr)
+	// if err != nil {
+	// 	log.Fatalf("can't create object TPM %q: %v", *tpmPath, err)
+	// }
+
+	akTemplatebytes, err := nvReadEX(rwr, tpmutil.Handle(GceAKTemplateNVIndexRSA))
+	if err != nil {
+		log.Fatalf("ERROR:  could not read nv index for GceAKTemplateNVIndexRSA: %v", err)
+	}
+
+	tb := tpm2.BytesAs2B[tpm2.TPMTPublic, *tpm2.TPMTPublic](akTemplatebytes)
+
+	cCreateGCEAK, err := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHEndorsement,
+		InPublic:      tb,
+	}.Execute(rwr)
+	if err != nil {
+		log.Fatalf("can't create object TPM %q: %v", *tpmPath, err)
+	}
+
+	defer func() {
+		flushContextCmd := tpm2.FlushContext{
+			FlushHandle: cCreateGCEAK.ObjectHandle,
+		}
+		_, err := flushContextCmd.Execute(rwr)
+		if err != nil {
+			log.Fatalf("can't close TPM %q: %v", *tpmPath, err)
 		}
 	}()
 
-	totalHandles := 0
-	for _, handleType := range handleNames["all"] {
-		handles, err := client.Handles(rwc, handleType)
-		if err != nil {
-			log.Fatalf("getting handles: %v", err)
-		}
-		for _, handle := range handles {
-			if err = tpm2.FlushContext(rwc, handle); err != nil {
-				log.Fatalf("flushing handle 0x%x: %v", handle, err)
-			}
-			log.Printf("Handle 0x%x flushed\n", handle)
-			totalHandles++
-		}
-	}
+	log.Printf("Name %s\n", hex.EncodeToString(cCreateGCEAK.Name.Buffer))
 
-	log.Printf("%d handles flushed\n", totalHandles)
-
-	// *****************
-
-	log.Printf("     Load SigningKey and Certifcate ")
-	kk, err := client.EndorsementKeyFromNvIndex(rwc, client.GceAKTemplateNVIndexRSA)
+	pub, err := cCreateGCEAK.OutPublic.Contents()
 	if err != nil {
-		log.Printf("ERROR:  could not get EndorsementKeyFromNvIndex: %v", err)
-		return
+		log.Fatalf("Failed to get rsa public: %v", err)
 	}
-	pubKey := kk.PublicKey().(*rsa.PublicKey)
-	akBytes, err := x509.MarshalPKIXPublicKey(pubKey)
+	rsaDetail, err := pub.Parameters.RSADetail()
 	if err != nil {
-		log.Printf("ERROR:  could not get MarshalPKIXPublicKey: %v", err)
-		return
+		log.Fatalf("Failed to get rsa details: %v", err)
 	}
-	akPubPEM := pem.EncodeToMemory(
+	rsaUnique, err := pub.Unique.RSA()
+	if err != nil {
+		log.Fatalf("Failed to get rsa unique: %v", err)
+	}
+
+	rsaGCEAKPub, err := tpm2.RSAPub(rsaDetail, rsaUnique)
+	if err != nil {
+		log.Fatalf("can't read rsapub unique %q: %v", *tpmPath, err)
+	}
+
+	b2, err := x509.MarshalPKIXPublicKey(rsaGCEAKPub)
+	if err != nil {
+		log.Fatalf("Unable to convert rsaGCEAKPub: %v", err)
+	}
+
+	akGCEPubPEM := pem.EncodeToMemory(
 		&pem.Block{
 			Type:  "PUBLIC KEY",
-			Bytes: akBytes,
+			Bytes: b2,
 		},
 	)
-	log.Printf("     Signing PEM \n%s", string(akPubPEM))
+	log.Printf("GCE AKPublic: \n%v", string(akGCEPubPEM))
 
-	// begin sign with AK using go-tpm-tools
-	aKdataToSign := []byte("foobar")
-	r, err := kk.SignData(aKdataToSign)
+	// *****************************************************
+
+	log.Printf("======= generate test signature with RSA key ========")
+	data := []byte("foo")
+
+	h, err := tpm2.Hash{
+		Hierarchy: tpm2.TPMRHEndorsement,
+		HashAlg:   tpm2.TPMAlgSHA256,
+		Data: tpm2.TPM2BMaxBuffer{
+			Buffer: data,
+		},
+	}.Execute(rwr)
 	if err != nil {
-		log.Printf("ERROR:  error singing with go-tpm-tools: %v", err)
-		return
+		log.Fatalf("Failed to Sign: %v", err)
 	}
 
-	log.Printf("     AK Signed Data using go-tpm-tools %s", base64.StdEncoding.EncodeToString(r))
+	// sess, cleanup1, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16)
+	// if err != nil {
+	// 	log.Fatalf("setting up trial session: %v", err)
+	// }
+	// defer func() {
+	// 	cleanup1()
 
-	h := sha256.New()
-	h.Write(aKdataToSign)
-	if err := rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, h.Sum(nil), r); err != nil {
-		log.Printf("ERROR:  could  VerifyPKCS1v15 (signing): %v", err)
-		return
+	// }()
+
+	// _, err = tpm2.PolicySecret{
+	// 	AuthHandle:    tpm2.TPMRHEndorsement,
+	// 	NonceTPM:      sess.NonceTPM(),
+	// 	PolicySession: sess.Handle(),
+	// }.Execute(rwr)
+	// if err != nil {
+	// 	log.Fatalf("error executing PolicySecret: %v", err)
+	// }
+
+	sign := tpm2.Sign{
+		KeyHandle: tpm2.AuthHandle{
+			Handle: cCreateGCEAK.ObjectHandle,
+			Name:   cCreateGCEAK.Name,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		Digest: tpm2.TPM2BDigest{
+			Buffer: h.OutHash.Buffer,
+		},
+		InScheme: tpm2.TPMTSigScheme{
+			Scheme: tpm2.TPMAlgRSASSA,
+			Details: tpm2.NewTPMUSigScheme(
+				tpm2.TPMAlgRSASSA,
+				&tpm2.TPMSSchemeHash{
+					HashAlg: tpm2.TPMAlgSHA256,
+				},
+			),
+		},
+		Validation: tpm2.TPMTTKHashCheck{
+			Tag:       tpm2.TPMSTHashCheck,
+			Hierarchy: tpm2.TPMRHEndorsement,
+			Digest: tpm2.TPM2BDigest{
+				Buffer: h.Validation.Digest.Buffer,
+			},
+		},
 	}
-	log.Printf("     Signature Verified")
 
-	// begin sign using go-tpm
-	//aKkeyHandle := kk.Handle()
-
-	data, err := tpm2.NVReadEx(rwc, tpmutil.Handle(client.GceAKTemplateNVIndexRSA), tpm2.HandleOwner, "", 0)
+	rspSign, err := sign.Execute(rwr)
 	if err != nil {
-		log.Fatalf("read error at index %d: %w", client.GceAKTemplateNVIndexRSA, err)
-	}
-	template, err := tpm2.DecodePublic(data)
-	if err != nil {
-		log.Fatalf("index %d data was not a TPM key template: %w", client.GceAKTemplateNVIndexRSA, err)
+		log.Fatalf("Failed to Sign: %v", err)
 	}
 
-	aKkeyHandle, keyName, _, _, _, _, err := tpm2.CreatePrimaryEx(rwc, tpm2.HandleEndorsement, tpm2.PCRSelection{}, emptyPassword, emptyPassword, template)
+	rsassa, err := rspSign.Signature.Signature.RSASSA()
 	if err != nil {
-		log.Fatalf("Load AK failed: %s", err)
+		log.Fatalf("Failed to get signature part: %v", err)
 	}
-	defer tpm2.FlushContext(rwc, aKkeyHandle)
+	log.Printf("signature: %s\n", base64.StdEncoding.EncodeToString(rsassa.Sig.Buffer))
 
-	log.Printf("akPub Name: %v", hex.EncodeToString(keyName))
-	// ***********
+	akhsh := crypto.SHA256.New()
+	akhsh.Write(data)
+	if err := rsa.VerifyPKCS1v15(rsaGCEAKPub, crypto.SHA256, akhsh.Sum(nil), rsassa.Sig.Buffer); err != nil {
+		log.Fatalf("Failed to verify signature: %v", err)
+	}
+}
 
-	sessCreateHandle, _, err := tpm2.StartAuthSession(
-		rwc,
-		tpm2.HandleNull,
-		tpm2.HandleNull,
-		make([]byte, 16),
-		nil,
-		tpm2.SessionPolicy,
-		tpm2.AlgNull,
-		tpm2.AlgSHA256)
+func nvReadEX(rwr transport.TPM, index tpmutil.Handle) ([]byte, error) {
+
+	readPubRsp, err := tpm2.NVReadPublic{
+		NVIndex: tpm2.TPMHandle(index),
+	}.Execute(rwr)
 	if err != nil {
-		log.Fatalf("Unable to create StartAuthSession : %v", err)
+		return nil, err
 	}
-	defer tpm2.FlushContext(rwc, sessCreateHandle)
-
-	if _, _, err := tpm2.PolicySecret(rwc, tpm2.HandleEndorsement, tpm2.AuthCommand{Session: tpm2.HandlePasswordSession, Attributes: tpm2.AttrContinueSession}, sessCreateHandle, nil, nil, nil, 0); err != nil {
-		log.Printf("ERROR:  could  PolicySecret (signing): %v", err)
-		return
-	}
-
-	aKdigest, aKvalidation, err := tpm2.Hash(rwc, tpm2.AlgSHA256, aKdataToSign, tpm2.HandleOwner)
+	log.Printf("Name: %x", readPubRsp.NVName.Buffer)
+	c, err := readPubRsp.NVPublic.Contents()
 	if err != nil {
-		log.Printf("ERROR:  could  StartAuthSession (signing): %v", err)
-		return
+		return nil, err
 	}
-	log.Printf("     AK Issued Hash %s", base64.StdEncoding.EncodeToString(aKdigest))
-	aKsig, err := tpm2.Sign(rwc, aKkeyHandle, emptyPassword, aKdigest, aKvalidation, &tpm2.SigScheme{
-		Alg:  tpm2.AlgRSASSA,
-		Hash: tpm2.AlgSHA256,
-	})
-	if err != nil {
-		log.Printf("ERROR:  could  Sign (signing): %v", err)
-		return
-	}
-	log.Printf("     AK Signed Data using go-tpm %s", base64.StdEncoding.EncodeToString(aKsig.RSA.Signature))
+	log.Printf("Size: %d", c.DataSize)
 
-	if err := rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, aKdigest, aKsig.RSA.Signature); err != nil {
-		log.Printf("ERROR:  could  VerifyPKCS1v15 (signing): %v", err)
-		return
+	getCmd := tpm2.GetCapability{
+		Capability:    tpm2.TPMCapTPMProperties,
+		Property:      uint32(tpm2.TPMPTNVBufferMax),
+		PropertyCount: 1,
 	}
-	log.Printf("     Signature Verified")
-	err = tpm2.FlushContext(rwc, sessCreateHandle)
+	getRsp, err := getCmd.Execute(rwr)
 	if err != nil {
-		log.Printf("ERROR:  could  flush SessionHandle: %v", err)
-		return
+		return nil, err
 	}
-	err = tpm2.FlushContext(rwc, aKkeyHandle)
-	if err != nil {
-		log.Printf("ERROR:  could  flush aKkeyHandle: %v", err)
-		return
-	}
-	kk.Close()
 
+	tp, err := getRsp.CapabilityData.Data.TPMProperties()
+	if err != nil {
+		return nil, err
+	}
+
+	blockSize := int(tp.TPMProperty[0].Value)
+	log.Printf("TPM Max NV buffer %d", blockSize)
+
+	outBuff := make([]byte, 0, int(c.DataSize))
+	for len(outBuff) < int(c.DataSize) {
+		readSize := blockSize
+		if readSize > (int(c.DataSize) - len(outBuff)) {
+			readSize = int(c.DataSize) - len(outBuff)
+		}
+
+		readRsp, err := tpm2.NVRead{
+			AuthHandle: tpm2.AuthHandle{
+				Handle: tpm2.TPMRHOwner,
+				Name:   tpm2.HandleName(tpm2.TPMRHOwner),
+				Auth:   tpm2.HMAC(tpm2.TPMAlgSHA256, 16, tpm2.Auth([]byte{})),
+			},
+			NVIndex: tpm2.NamedHandle{
+				Handle: tpm2.TPMHandle(index),
+				Name:   readPubRsp.NVName,
+			},
+			Size:   uint16(readSize),
+			Offset: uint16(len(outBuff)),
+		}.Execute(rwr)
+		if err != nil {
+			return nil, err
+		}
+		data := readRsp.Data.Buffer
+		outBuff = append(outBuff, data...)
+	}
+	return outBuff, nil
 }
