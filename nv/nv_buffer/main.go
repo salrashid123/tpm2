@@ -1,8 +1,8 @@
 package main
 
 import (
-	"crypto/x509"
-	"encoding/pem"
+	"crypto/rand"
+	"encoding/base64"
 	"flag"
 	"io"
 	"log"
@@ -47,6 +47,7 @@ const (
 
 var (
 	tpmPath = flag.String("tpm-path", "/dev/tpmrm0", "Path to the TPM device (character device or a Unix socket).")
+	nv      = flag.Uint("nv", 0x1500000, "nv to use") //tpm2_nvundefine 0x1500000
 )
 
 var TPMDEVICES = []string{"/dev/tpm0", "/dev/tpmrm0"}
@@ -78,24 +79,6 @@ func main() {
 
 	rwr := transport.FromReadWriter(rwc)
 
-	// *****************
-
-	log.Printf("     Load SigningKey and Cert ")
-	// read direct from nv template
-
-	readPubRsp, err := tpm2.NVReadPublic{
-		NVIndex: tpm2.TPMHandle(GceAKCertNVIndexRSA),
-	}.Execute(rwr)
-	if err != nil {
-		log.Fatalf("Calling TPM2_NV_ReadPublic: %v", err)
-	}
-	log.Printf("Name: %x", readPubRsp.NVName.Buffer)
-	c, err := readPubRsp.NVPublic.Contents()
-	if err != nil {
-		log.Fatalf("Calling TPM2_NV_ReadPublic Contents: %v", err)
-	}
-	log.Printf("Size: %d", c.DataSize)
-
 	// get nv max buffer
 
 	// tpm2_getcap properties-fixed | grep -A 1 TPM2_PT_NV_BUFFER_MAX
@@ -120,6 +103,94 @@ func main() {
 	blockSize := int(tp.TPMProperty[0].Value)
 	log.Printf("TPM Max NV buffer %d", blockSize)
 
+	// *****************
+
+	log.Printf("     Load SigningKey and Cert ")
+	// read direct from nv template
+
+	token := make([]byte, 2*blockSize)
+	rand.Read(token)
+	log.Println(base64.StdEncoding.EncodeToString(token))
+	/// write
+
+	defs := tpm2.NVDefineSpace{
+		AuthHandle: tpm2.TPMRHOwner,
+		Auth: tpm2.TPM2BAuth{
+			Buffer: []byte("p@ssw0rd"),
+		},
+		PublicInfo: tpm2.New2B(
+			tpm2.TPMSNVPublic{
+				NVIndex: tpm2.TPMHandle(*nv),
+				NameAlg: tpm2.TPMAlgSHA256,
+				Attributes: tpm2.TPMANV{
+					OwnerWrite: true,
+					OwnerRead:  true,
+					AuthWrite:  true,
+					AuthRead:   true,
+					NT:         tpm2.TPMNTOrdinary,
+					NoDA:       true,
+				},
+				DataSize: uint16(2 * blockSize),
+			}),
+	}
+
+	pub, err := defs.PublicInfo.Contents()
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	nvName, err := tpm2.NVName(pub)
+	if err != nil {
+		log.Fatalf("Calculating name of NV index: %v", err)
+	}
+
+	_, err = defs.Execute(rwr)
+	if err != nil {
+		log.Fatalf("error executing PolicyPCR: %v", err)
+	}
+
+	batch := blockSize
+
+	for i := 0; i < len(token); i += batch {
+		j := i + batch
+		if j > len(token) {
+			j = len(token)
+		}
+
+		prewrite := tpm2.NVWrite{
+			AuthHandle: tpm2.AuthHandle{
+				Handle: pub.NVIndex,
+				Name:   *nvName,
+				Auth:   tpm2.PasswordAuth([]byte("p@ssw0rd")),
+			},
+			NVIndex: tpm2.NamedHandle{
+				Handle: pub.NVIndex,
+				Name:   *nvName,
+			},
+			Data: tpm2.TPM2BMaxNVBuffer{
+				Buffer: token[i:j],
+			},
+			Offset: uint16(i),
+		}
+		if _, err := prewrite.Execute(rwr); err != nil {
+			log.Fatalf("Calling TPM2_NV_Write: %v", err)
+		}
+
+	}
+
+	// read
+
+	readPubRsp, err := tpm2.NVReadPublic{
+		NVIndex: tpm2.TPMHandle(*nv),
+	}.Execute(rwr)
+	if err != nil {
+		log.Fatalf("Calling TPM2_NV_ReadPublic: %v", err)
+	}
+	c, err := readPubRsp.NVPublic.Contents()
+	if err != nil {
+		log.Fatalf("Calling TPM2_NV_ReadPublic Contents: %v", err)
+	}
+	log.Printf("Size: %d", c.DataSize)
+
 	outBuff := make([]byte, 0, int(c.DataSize))
 	for len(outBuff) < int(c.DataSize) {
 		readSize := blockSize
@@ -129,12 +200,12 @@ func main() {
 
 		readRsp, err := tpm2.NVRead{
 			AuthHandle: tpm2.AuthHandle{
-				Handle: tpm2.TPMRHOwner,
-				Name:   tpm2.HandleName(tpm2.TPMRHOwner),
-				Auth:   tpm2.HMAC(tpm2.TPMAlgSHA256, 16, tpm2.Auth([]byte{})),
+				Handle: pub.NVIndex,
+				Name:   *nvName,
+				Auth:   tpm2.PasswordAuth([]byte("p@ssw0rd")),
 			},
 			NVIndex: tpm2.NamedHandle{
-				Handle: tpm2.TPMHandle(GceAKCertNVIndexRSA),
+				Handle: tpm2.TPMHandle(*nv),
 				Name:   readPubRsp.NVName,
 			},
 			Size:   uint16(readSize),
@@ -146,18 +217,6 @@ func main() {
 		data := readRsp.Data.Buffer
 		outBuff = append(outBuff, data...)
 	}
-	signCert, err := x509.ParseCertificate(outBuff)
-	if err != nil {
-		log.Printf("ERROR:  error parsing AK singing cert : %v", err)
-		return
-	}
 
-	akCertPEM := pem.EncodeToMemory(
-		&pem.Block{
-			Type:  "CERTIFICATE",
-			Bytes: signCert.Raw,
-		},
-	)
-	log.Printf("     Signing Certificate \n%s", string(akCertPEM))
-
+	log.Println(base64.StdEncoding.EncodeToString(outBuff))
 }
