@@ -83,7 +83,11 @@ func main() {
 
 	// tpm2_getcap properties-fixed | grep -A 1 TPM2_PT_NV_BUFFER_MAX
 	// 	TPM2_PT_NV_BUFFER_MAX:
-	// 	raw: 0x800   <<<<< 2048
+	// 	raw: 0x400   <<<<< 1024
+
+	// $ tpm2_getcap properties-fixed | grep -A 1 TPM2_PT_NV_INDEX_MAX
+	// TPM2_PT_NV_INDEX_MAX:
+	//   raw: 0x800  <<<<< 2048
 
 	getCmd := tpm2.GetCapability{
 		Capability:    tpm2.TPMCapTPMProperties,
@@ -108,7 +112,7 @@ func main() {
 	log.Printf("     Load SigningKey and Cert ")
 	// read direct from nv template
 
-	token := make([]byte, 2*blockSize)
+	token := make([]byte, 2*blockSize) // can't be larger than TPM2_PT_NV_INDEX_MAX
 	rand.Read(token)
 	log.Println(base64.StdEncoding.EncodeToString(token))
 	/// write
@@ -219,4 +223,16 @@ func main() {
 	}
 
 	log.Println(base64.StdEncoding.EncodeToString(outBuff))
+
+	_, err = tpm2.NVUndefineSpace{
+		AuthHandle: tpm2.TPMRHOwner,
+
+		NVIndex: tpm2.NamedHandle{
+			Handle: pub.NVIndex,
+			Name:   *nvName,
+		},
+	}.Execute(rwr)
+	if err != nil {
+		log.Fatalf("Calling TPM2_NV_ReadPublic: %v", err)
+	}
 }
