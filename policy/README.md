@@ -353,13 +353,13 @@ $ tpm2_policysigned -S session.ctx -c signing_key.ctx  --raw-data to_sign.bin -t
 $ xxd -p -c 100 to_sign.bin 
    0000001e 98ba3a
 
-# ## with cphash
+# ## with cphash, qualification and timeout
 $ tpm2_encryptdecrypt  --iv iv.bin  -c aes.ctx  --cphash=cphash.bin   secret.dat
 $ xxd -p -c 100 cphash.bin 
-   0020 ad8bb4d5ee390d3e665bd00f3a5347050b1df66ba195ba2a5adf4fc2758acea9
+   0020 ad8bb4d5ee390d3e665bd00f3a5347050b1df66ba195ba2a5adf4fc2758acea9   ## remove prefix 0020
 $ tpm2_policysigned -S session.ctx -c signing_key.ctx --cphash=cphash.bin --raw-data to_sign.bin  -t 30 -q 98ba3a
 $ xxd -p -c 100 to_sign.bin 
-   0000001 ead8bb4d5ee390d3e665bd00f3a5347050b1df66ba195ba2a5adf4fc2758acea9 98ba3a
+   0000001e ad8bb4d5ee390d3e665bd00f3a5347050b1df66ba195ba2a5adf4fc2758acea9 98ba3a
 
 # ## with nonce, timeout, cphash and qualification
 $ tpm2_policysigned -S session.ctx -c signing_key.ctx --cphash=cphash.bin --raw-data to_sign.bin -x -t 30 -q 98ba3a
