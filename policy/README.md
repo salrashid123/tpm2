@@ -334,3 +334,34 @@ tpm2_flushcontext -t
 tpm2_encryptdecrypt -Q --iv iv.bin  -c aes.ctx -o cipher.out -p"session:session.ctx"  secret.dat
 tpm2_flushcontext session.ctx
 ```
+
+Signed policy data
+
+```bash
+# ## no restrictions
+$ tpm2_policysigned -S session.ctx -c signing_key.ctx  --raw-data to_sign.bin 
+$ xxd -p -c 100 to_sign.bin 
+   00000000
+
+# ## with qualification
+$ tpm2_policysigned -S session.ctx -c signing_key.ctx  --raw-data to_sign.bin  -q 98ba3a
+$ xxd -p -c 100 to_sign.bin 
+   0000000098ba3a
+
+# ## with qualification and timeout
+$ tpm2_policysigned -S session.ctx -c signing_key.ctx  --raw-data to_sign.bin -t 30 -q 98ba3a
+$ xxd -p -c 100 to_sign.bin 
+   0000001e 98ba3a
+
+# ## with cphash
+$ xxd -p -c 100 cphash.bin 
+   0020 ad8bb4d5ee390d3e665bd00f3a5347050b1df66ba195ba2a5adf4fc2758acea9
+$ tpm2_policysigned -S session.ctx -c signing_key.ctx --cphash=cphash.bin --raw-data to_sign.bin  -t 30 -q 98ba3a
+$ xxd -p -c 100 to_sign.bin 
+   0000001 ead8bb4d5ee390d3e665bd00f3a5347050b1df66ba195ba2a5adf4fc2758acea9 98ba3a
+
+# ## with nonce, timeout, cphash and qualification
+$ tpm2_policysigned -S session.ctx -c signing_key.ctx --cphash=cphash.bin --raw-data to_sign.bin -x -t 30 -q 98ba3a
+$ xxd -p -c 100 to_sign.bin 
+   59868e09919e21fb9a041e1cafaba9ac95d45967bac24e1ee9670be29310f213 0000001e ad8bb4d5ee390d3e665bd00f3a5347050b1df66ba195ba2a5adf4fc2758acea9 98ba3a
+```
