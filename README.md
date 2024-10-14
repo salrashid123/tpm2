@@ -135,6 +135,10 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 
 - `hmac_import`: Import an external aes key and use it to do hmac-stuff
 
+- `policy`: Samples covering using session policy (pcr, policysigned, password, authvalue)
+
+- `policy_gen`: Extract and use the raw low-level policy command parameters
+
 - `tpm_services`: samples in go for  standalone remote attestation, quote-verify and seal-unseal
 
 - `ek_import_blob`: Transfer secret  using ekPub only. Example only covers `go-tpm` based transfer (TODO: figure out the `tpm2_tools` flow).

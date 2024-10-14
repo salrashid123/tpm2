@@ -7,8 +7,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"flag"
+	"io"
 	"log"
+	"net"
 	"os"
+	"slices"
 
 	// "github.com/google/go-tpm-tools/simulator"
 	// "github.com/google/go-tpm/tpmutil"
@@ -29,6 +32,37 @@ var (
 	dataToSign = flag.String("datatosign", "foo", "data to sign")
 )
 
+var TPMDEVICES = []string{"/dev/tpm0", "/dev/tpmrm0"}
+
+func openTPM(path string) (io.ReadWriteCloser, error) {
+	if slices.Contains(TPMDEVICES, path) {
+		return tpmutil.OpenTPM(path)
+	} else if path == "simulator" {
+		return simulator.Get() //GetWithFixedSeedInsecure(1073741825)
+	} else {
+		return net.Dial("tcp", path)
+	}
+}
+
+type TPM struct {
+	transport io.ReadWriteCloser
+}
+
+func (t *TPM) Send(input []byte) ([]byte, error) {
+	return tpmutil.RunCommandRaw(t.transport, input)
+}
+
+func getTPM(s io.ReadWriteCloser) (transport.TPMCloser, error) {
+	return &TPM{
+
+		transport: s,
+	}, nil
+}
+
+func (t *TPM) Close() error {
+	return t.transport.Close()
+}
+
 func main() {
 	flag.Parse()
 
@@ -38,8 +72,7 @@ func main() {
 
 	keyPass := []byte("bar")
 
-	//rwc, err := tpmutil.OpenTPM(*tpmPath)
-	rwc, err := simulator.GetWithFixedSeedInsecure(1073741825)
+	rwc, err := openTPM(*tpmPath)
 	if err != nil {
 		log.Fatalf("can't open TPM %q: %v", *tpmPath, err)
 	}
