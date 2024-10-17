@@ -7,6 +7,9 @@ i'm using the swtpm here:
 rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm  &&    sudo swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --create-ek-cert &&  sudo swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear --log level=2
 
 export TPM2TOOLS_TCTI="swtpm:port=2321"
+tpm2_pcrextend 23:sha256=0x0000000000000000000000000000000000000000000000000000000000000000
+tpm2_pcrread sha256:23
+tpm2_flushcontext -t &&  tpm2_flushcontext -s  &&  tpm2_flushcontext -l
 ```
 
 ## No Policy

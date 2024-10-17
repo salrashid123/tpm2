@@ -22,23 +22,7 @@ import (
 	"github.com/google/go-tpm/tpmutil"
 )
 
-// rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm  && \
-//     sudo swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --create-ek-cert && \
-//     sudo swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear --log level=2
-
-// export TPM2TOOLS_TCTI="swtpm:port=2321"
-// tpm2_flushcontext -t &&  tpm2_flushcontext -s  &&  tpm2_flushcontext -l
-// $ tpm2_pcrread sha256:23
-//   sha256:
-//     23: 0xF5A5FD42D16A20302798EF6ED309979B43003D2320D9F0E8EA9831A92759FB4B
-
-const (
-	pcr = 23
-)
-
-const (
-	keyPassword = "keypwd"
-)
+const ()
 
 var (
 	tpmPath = flag.String("tpm-path", "127.0.0.1:2321", "Path to the TPM device (character device or a Unix socket).")
@@ -118,7 +102,16 @@ func main() {
 			tpm2.TPMAlgRSA,
 			&tpm2.TPMSRSAParms{
 				Exponent: uint32(key.PublicKey.E),
-				KeyBits:  2048,
+				// Scheme: tpm2.TPMTRSAScheme{
+				// 	Scheme: tpm2.TPMAlgRSASSA,
+				// 	Details: tpm2.NewTPMUAsymScheme(
+				// 		tpm2.TPMAlgRSASSA,
+				// 		&tpm2.TPMSSigSchemeRSASSA{
+				// 			HashAlg: tpm2.TPMAlgSHA256,
+				// 		},
+				// 	),
+				// },
+				KeyBits: 2048,
 			},
 		),
 
@@ -179,49 +172,9 @@ func main() {
 	// manually generate the structs for a PCR policy;  we'll use these later to
 	// just print out the command sequences
 
-	sel := tpm2.TPMLPCRSelection{
-		PCRSelections: []tpm2.TPMSPCRSelection{
-			{
-				Hash:      tpm2.TPMAlgSHA256,
-				PCRSelect: tpm2.PCClientCompatible.PCRs(pcr),
-			},
-		},
-	}
+	log.Printf("======= create policysigned ========")
 
-	expectedDigest, err := getExpectedPCRDigest(rwr, sel, tpm2.TPMAlgSHA256)
-	if err != nil {
-		log.Printf("ERROR:  could not get PolicySession: %v", err)
-		return
-	}
-
-	// now marshal each part and then concat them; thats the actual raw command thats run
-
-	// 23.7 TPM2_PolicyPCR https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-3-Commands-01.38.pdf
-	pcrSelectionSegment := tpm2.Marshal(sel)
-	pcrDigestSegment := tpm2.Marshal(tpm2.TPM2BDigest{
-		Buffer: expectedDigest,
-	})
-
-	commandParameter := append(pcrDigestSegment, pcrSelectionSegment...)
-	// 0020e2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf900000001000b03000080
-	log.Printf("pcrSelectionSegment %s", hex.EncodeToString(pcrSelectionSegment))
-	log.Printf("pcrDigestSegment %s", hex.EncodeToString(pcrDigestSegment))
-
-	log.Printf("commandParameter %s", hex.EncodeToString(commandParameter))
-
-	// create a key with a pcr and policyauthvalue
 	policyRefString := "foobar"
-	_, err = tpm2.PolicySecret{
-		PolicySession: sess.Handle(),
-		AuthHandle:    tpm2.TPMRHEndorsement,
-		NonceTPM:      sess.NonceTPM(),
-		PolicyRef: tpm2.TPM2BNonce{
-			Buffer: []byte(policyRefString),
-		},
-	}.Execute(rwr)
-	if err != nil {
-		log.Fatalf("error executing policyAuthValue: %v", err)
-	}
 
 	expirationTime := 10
 
@@ -250,26 +203,6 @@ func main() {
 		log.Fatalf("error executing policysigned: %v", err)
 	}
 
-	_, err = tpm2.PolicyPCR{
-		PolicySession: sess.Handle(),
-		PcrDigest: tpm2.TPM2BDigest{
-			Buffer: expectedDigest,
-		},
-		Pcrs: tpm2.TPMLPCRSelection{
-			PCRSelections: sel.PCRSelections,
-		},
-	}.Execute(rwr)
-	if err != nil {
-		log.Fatalf("error executing policyAuthValue: %v", err)
-	}
-
-	_, err = tpm2.PolicyAuthValue{
-		PolicySession: sess.Handle(),
-	}.Execute(rwr)
-	if err != nil {
-		log.Fatalf("error executing policyAuthValue: %v", err)
-	}
-
 	pgd, err := tpm2.PolicyGetDigest{
 		PolicySession: sess.Handle(),
 	}.Execute(rwr)
@@ -277,67 +210,7 @@ func main() {
 		log.Fatalf("error executing PolicyGetDigest: %v", err)
 	}
 
-	// ******** PolicyPCR Bytes
-
-	e, err := tpm2.CPBytes(tpm2.PolicyPCR{
-
-		PcrDigest: tpm2.TPM2BDigest{
-			Buffer: expectedDigest,
-		},
-		Pcrs: tpm2.TPMLPCRSelection{
-			PCRSelections: sel.PCRSelections,
-		},
-	})
-	if err != nil {
-		log.Fatalf("error executing CPBytes: %v", err)
-	}
-
-	// the cpbytes should be the same commandParameter as above
-	log.Printf("PolicyPCR CPBytes %s\n", hex.EncodeToString(e))
-
-	// now to test, generate the pcr policy but this time
-	// inject the cpbytes as the command directly
-	tp := tpm2.PolicyPCR{}
-
-	// inject the parameters into the struct
-	err = tpm2.ReqParameters(e, &tp)
-	if err != nil {
-		log.Fatalf("error generating requestParameters: %v", err)
-	}
-
-	// do the same 'bytes' to struct conversion for policyauthvalue
-	ta := tpm2.PolicyAuthValue{}
-
-	// this doens't have a command body so specify nil
-	err = tpm2.ReqParameters(nil, &ta)
-	if err != nil {
-		log.Fatalf("error generating requestParameters: %v", err)
-	}
-
 	/// ****************************
-
-	// ******** PolicySecret Bytes
-
-	a := make([]byte, 4)
-	hintHandle := tpm2.TPMRHEndorsement.HandleValue()
-	//hintHandle = 0
-	binary.BigEndian.PutUint32(a, hintHandle) // TPMRHEndorsement TPMHandle = 0x4000000B
-	log.Printf("PolicySecret objectHandleHint hex %s\n", hex.EncodeToString(a))
-
-	b := make([]byte, 2)
-	binary.BigEndian.PutUint16(b, uint16(len(tpm2.TPMRHEndorsement.KnownName().Buffer)))
-	var m []byte
-	m = append(m, b...)
-	m = append(m, tpm2.TPMRHEndorsement.KnownName().Buffer...)
-	log.Printf("PolicySecret Name %s\n", hex.EncodeToString(m)) // pg 79 Names https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-1-Architecture-01.07-2014-03-13.pdf
-
-	log.Printf("PolicySecret PolicyRef %s\n", hex.EncodeToString([]byte(policyRefString)))
-
-	var policySecretBytes []byte
-	policySecretBytes = append(policySecretBytes, a...)
-	policySecretBytes = append(policySecretBytes, m...)
-	policySecretBytes = append(policySecretBytes, []byte(policyRefString)...)
-	log.Printf("PolicySecret CPBytes %s", hex.EncodeToString(policySecretBytes))
 
 	// now create the key template and specify the policydigest
 	aesTemplate := tpm2.TPMTPublic{
@@ -377,7 +250,7 @@ func main() {
 		InSensitive: tpm2.TPM2BSensitiveCreate{
 			Sensitive: &tpm2.TPMSSensitiveCreate{
 				UserAuth: tpm2.TPM2BAuth{
-					Buffer: []byte(keyPassword),
+					Buffer: []byte(nil),
 				},
 			},
 		},
@@ -415,50 +288,13 @@ func main() {
 	}
 
 	// start a session
-	sess2, cleanup2, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{tpm2.Auth([]byte(keyPassword))}...)
+	sess2, cleanup2, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{tpm2.Auth([]byte(nil))}...)
 	if err != nil {
 		log.Fatalf("setting up policy session: %v", err)
 	}
 	defer cleanup2()
 
-	// ************** recreate policysecret
-
-	var na tpm2.TPMHandle
-
-	hintBytes := policySecretBytes[:4]
-	hintInt32 := binary.BigEndian.Uint32(hintBytes)
-	log.Printf("Recreated PolicySecret objectHandleHint %d\n", hintInt32)
-
-	nameLengthBytes := policySecretBytes[4 : 4+2]
-	log.Printf("Recreated PolicySecret nameLengthBytes %s\n", hex.EncodeToString(nameLengthBytes))
-	nameBytes := policySecretBytes[4+2 : 4+2+binary.BigEndian.Uint16(nameLengthBytes)]
-	log.Printf("Recreated PolicySecret nameBytes %s\n", hex.EncodeToString(nameBytes))
-	nc, err := tpm2.Unmarshal[tpm2.TPM2BName](append(nameLengthBytes, nameBytes...))
-	if err != nil {
-		log.Fatalf("error executing policyAuthValue: %v", err)
-	}
-
-	nonceBytes := policySecretBytes[4+2+binary.BigEndian.Uint16(nameLengthBytes):]
-	log.Printf("Recreated PolicySecret nonceBytes %s\n", hex.EncodeToString(nonceBytes))
-	if hintInt32 != 0 {
-		if hex.EncodeToString(tpm2.HandleName(tpm2.TPMHandle(hintInt32)).Buffer) != hex.EncodeToString(nc.Buffer) {
-			log.Fatalf("names do not match: %v", err)
-		}
-		na = tpm2.TPMHandle(hintInt32)
-	} else {
-		na = tpm2.TPMHandle(binary.BigEndian.Uint32(nc.Buffer))
-	}
-	_, err = tpm2.PolicySecret{
-		PolicySession: sess2.Handle(),
-		AuthHandle:    na, //tpm2.TPMHandle(hintInt32), // tpm2.TPMRHEndorsement,
-		NonceTPM:      sess2.NonceTPM(),
-		PolicyRef: tpm2.TPM2BNonce{
-			Buffer: nonceBytes,
-		},
-	}.Execute(rwr)
-	if err != nil {
-		log.Fatalf("error executing policyAuthValue: %v", err)
-	}
+	// ************** recreate policysigned
 
 	// TPM2.0 spec, Revision 1.38, Part 3 nonce must be present if expiration is non-zero.
 	// aHash ≔ HauthAlg(nonceTPM || expiration || cpHashA || policyRef)
@@ -506,33 +342,6 @@ func main() {
 	}.Execute(rwr)
 	if err != nil {
 		log.Fatalf("error executing policysigned: %v", err)
-	}
-
-	// use the raw command bytes to generate the pcr policy
-	tp2 := tpm2.PolicyPCR{
-		PolicySession: sess2.Handle(),
-	}
-	err = tpm2.ReqParameters(e, &tp2)
-	if err != nil {
-		log.Fatalf("error generating requestParameters: %v", err)
-	}
-	_, err = tp2.Execute(rwr)
-	if err != nil {
-		log.Fatalf("error executing ReqParameters: %v", err)
-	}
-
-	// and the authvalue
-	ta2 := tpm2.PolicyAuthValue{
-		PolicySession: sess2.Handle(),
-	}
-
-	err = tpm2.ReqParameters(nil, &ta2)
-	if err != nil {
-		log.Fatalf("error generating requestParameters: %v", err)
-	}
-	_, err = ta2.Execute(rwr)
-	if err != nil {
-		log.Fatalf("error executing ReqParameters: %v", err)
 	}
 
 	// now use the initialized policy to encrypt/decrypt

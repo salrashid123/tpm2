@@ -77,6 +77,7 @@ so given that  `0020E2F61C3F71D1DEFD3FA999DFA36953755C690689799962B48BEBD836974E
 	}.Execute(rwr)
 ```
 
+
 For a live demo, run a swtpm, then increment pcr23
 
 ```bash
