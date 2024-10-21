@@ -257,6 +257,9 @@ git clone https://github.com/tpm2-software/tpm2-tss.git
   make install
   udevadm control --reload-rules && sudo udevadm trigger
   ldconfig
+
+## to enable tss debug, set
+### export TSS2_LOG=esys+debug
 ```
 
 ```bash
@@ -339,6 +342,7 @@ openssl version
    OpenSSL 3.0.9 30 May 2023 (Library: OpenSSL 3.0.9 30 May 2023)
 
 export NAME=tpms
+export TSS2_LOG=esys+debug
 
 openssl genpkey -provider tpm2 -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
       -pkeyopt rsa_keygen_pubexp:65537 -out certs/$NAME.key
