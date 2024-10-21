@@ -273,7 +273,7 @@ git clone https://github.com/tpm2-software/tpm2-tools.git
 ```
 
 
-#### Install tpm2-tss openssl engine
+#### Install tpm2-tss openssl engine (openssl1.x)
 
 This step is optional an only do this if you intend to use openssl w/ the TPM as the `engine`
 
@@ -295,6 +295,8 @@ $ openssl engine -t -c tpm2tss
     [RSA, RAND]
         [ available ]
 ```
+
+#### Install tpm2-openssl provider (openssl3)
 
 for openssl3 [tpm2-openssl](https://github.com/tpm2-software/tpm2-openssl) installed:
 
