@@ -296,6 +296,34 @@ $ openssl engine -t -c tpm2tss
         [ available ]
 ```
 
+```bash
+
+export OPENSSL_CONF=/path/to/openssl.cnf
+
+$ openssl engine -t
+(rdrand) Intel RDRAND engine
+     [ available ]
+(dynamic) Dynamic engine loading support
+     [ unavailable ]
+(tpm2tss) TPM2-TSS engine for OpenSSL
+     [ available ]
+```
+- `openssl.cnf`
+  
+```conf
+[openssl_init]
+engines = engine_section
+
+[engine_section]
+tpm2tss = tpm2tss_section
+
+[tpm2tss_section]
+engine_id = tpm2tss
+dynamic_path = /usr/lib/x86_64-linux-gnu/engines-3/libtpm2tss.so
+default_algorithms = RSA,ECDSA
+init = 1
+```
+
 #### Install tpm2-openssl provider (openssl3)
 
 for openssl3 [tpm2-openssl](https://github.com/tpm2-software/tpm2-openssl) installed:
