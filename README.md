@@ -296,6 +296,22 @@ $ openssl engine -t -c tpm2tss
         [ available ]
 ```
 
+for openssl3 [tpm2-openssl](https://github.com/tpm2-software/tpm2-openssl) installed:
+
+```bash
+export OPENSSL_MODULES=/usr/lib/x86_64-linux-gnu/ossl-modules/   # or wherever tpm2.so sits, eg /usr/lib/x86_64-linux-gnu/ossl-modules/tpm2.so
+
+$ openssl version
+   OpenSSL 3.0.9 30 May 2023 (Library: OpenSSL 3.0.9 30 May 2023)
+
+$ openssl list --providers -provider tpm2
+Providers:
+  tpm2
+    name: TPM 2.0 Provider
+    version: 1.2.0-25-g87082a3
+    status: active
+```
+
 #### Non-root access to in-kernel resource manager `/dev/tpmrm0` usint tpm2-tss
 
 For non-root access using tss resource manager
