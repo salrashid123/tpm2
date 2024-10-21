@@ -59,7 +59,8 @@ func main() {
 
 	bitSize := 2048
 
-	// Generate RSA key.
+	// Generate a signing RSA key.
+	// this key is used to sign and authorize policies
 	key, err := rsa.GenerateKey(rand.Reader, bitSize)
 	if err != nil {
 		panic(err)
@@ -87,6 +88,7 @@ func main() {
 	log.Printf("Public \n%s\n", pubPEM)
 	log.Printf("Private \n%s\n", keyPEM)
 
+	// now load only the public key into the tpm
 	rsaTemplate := tpm2.TPMTPublic{
 		Type:    tpm2.TPMAlgRSA,
 		NameAlg: tpm2.TPMAlgSHA256,
@@ -131,34 +133,15 @@ func main() {
 
 	log.Printf("loaded external %s\n", hex.EncodeToString(l.Name.Buffer))
 
-	// first create primary
-	log.Printf("======= createPrimary ========")
-
-	cPrimary, err := tpm2.CreatePrimary{
-		PrimaryHandle: tpm2.TPMRHOwner,
-		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
-	}.Execute(rwr)
-	if err != nil {
-		log.Fatalf("can't create primary TPM %q: %v", *tpmPath, err)
-	}
-	defer func() {
-		flush := tpm2.FlushContext{
-			FlushHandle: cPrimary.ObjectHandle,
-		}
-		_, err = flush.Execute(rwr)
-	}()
-
-	// now create a key
-	log.Printf("======= create ========")
+	// now create a policy session for the authorized key
+	//  we will need its digest to create they actual AES key
+	log.Printf("======= create a policy session for authorized key ========")
 
 	sess, cleanup1, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, tpm2.Trial())
 	if err != nil {
 		log.Fatalf("setting up trial session: %v", err)
 	}
 	defer cleanup1()
-
-	// manually generate the structs for a PCR policy;  we'll use these later to
-	// just print out the command sequences
 
 	log.Printf("======= create PolicyAuthorize ========")
 
@@ -179,7 +162,7 @@ func main() {
 		log.Fatalf("error executing PolicyAuthorize: %v", err)
 	}
 
-	pgd, err := tpm2.PolicyGetDigest{
+	policyAuthorizeDigest, err := tpm2.PolicyGetDigest{
 		PolicySession: sess.Handle(),
 	}.Execute(rwr)
 	if err != nil {
@@ -187,6 +170,8 @@ func main() {
 	}
 
 	cleanup1()
+
+	// now create a create a  pcr policy; we will later sign this
 
 	log.Printf("======= create PolicyPCR ========")
 	sesspcr, cleanup1pcr, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, tpm2.Trial())
@@ -218,8 +203,8 @@ func main() {
 		log.Fatalf("error executing policyAuthValue: %v", err)
 	}
 
-	// verify the digest
-	pgdpcr, err := tpm2.PolicyGetDigest{
+	// get the pcr digest
+	pcrPolicyDigest, err := tpm2.PolicyGetDigest{
 		PolicySession: sesspcr.Handle(),
 	}.Execute(rwr)
 	if err != nil {
@@ -230,7 +215,7 @@ func main() {
 	//  aHash ≔ HaHashAlg(approvedPolicy || policyRef)
 
 	policyRef := []byte(policyRefString)
-	toDigest := append(pgdpcr.PolicyDigest.Buffer, policyRef...)
+	toDigest := append(pcrPolicyDigest.PolicyDigest.Buffer, policyRef...)
 
 	msgHash := sha256.New()
 	_, err = msgHash.Write(toDigest)
@@ -271,6 +256,24 @@ func main() {
 
 	/// ****************************
 
+	log.Printf("======= createPrimary ========")
+
+	cPrimary, err := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.TPMRHOwner,
+		InPublic:      tpm2.New2B(tpm2.RSASRKTemplate),
+	}.Execute(rwr)
+	if err != nil {
+		log.Fatalf("can't create primary TPM %q: %v", *tpmPath, err)
+	}
+	defer func() {
+		flush := tpm2.FlushContext{
+			FlushHandle: cPrimary.ObjectHandle,
+		}
+		_, err = flush.Execute(rwr)
+	}()
+
+	// now create a key
+
 	// now create the key template and specify the policydigest
 	aesTemplate := tpm2.TPMTPublic{
 		Type:    tpm2.TPMAlgSymCipher,
@@ -283,7 +286,7 @@ func main() {
 			Decrypt:             true,
 			SignEncrypt:         true,
 		},
-		AuthPolicy: pgd.PolicyDigest,
+		AuthPolicy: policyAuthorizeDigest.PolicyDigest, // note the aes key has an auth policy for PolicyAuthorize, not the PCRPolicy
 		Parameters: tpm2.NewTPMUPublicParms(
 			tpm2.TPMAlgSymCipher,
 			&tpm2.TPMSSymCipherParms{
@@ -346,7 +349,7 @@ func main() {
 		log.Fatalf("can't read rand %v", err)
 	}
 
-	// ************* get verifiecation ticket
+	// ************* get its verification ticket
 
 	v, err := tpm2.VerifySignature{
 		KeyHandle: l.ObjectHandle,
@@ -370,7 +373,7 @@ func main() {
 		log.Fatalf("error executing VerifySignature: %v", err)
 	}
 
-	// start a session
+	// start a session to create a pcr policy and then a policyauthorize
 	sess2, cleanup2, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{tpm2.Auth([]byte(nil))}...)
 	if err != nil {
 		log.Fatalf("setting up policy session: %v", err)
@@ -389,7 +392,7 @@ func main() {
 
 	_, err = tpm2.PolicyAuthorize{
 		PolicySession:  sess2.Handle(),
-		ApprovedPolicy: pgdpcr.PolicyDigest,
+		ApprovedPolicy: pcrPolicyDigest.PolicyDigest, // use the expected digest we want to sign
 		KeySign:        l.Name,
 		PolicyRef: tpm2.TPM2BDigest{
 			Buffer: []byte(policyRefString),
