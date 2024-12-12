@@ -54,6 +54,9 @@ $ openssl asn1parse -inform PEM -in private.pem
 
 ```
 
+
+### Direct
+
 so given that  `0020E2F61C3F71D1DEFD3FA999DFA36953755C690689799962B48BEBD836974E8CF900000001000B03000080` represents the PCRPolicy parameters, to convert that to go-tpm `PolicyPCR`
 
 ```golang
@@ -77,8 +80,15 @@ so given that  `0020E2F61C3F71D1DEFD3FA999DFA36953755C690689799962B48BEBD836974E
 	}.Execute(rwr)
 ```
 
+see `gendirect/pcrgen.go` which reconstructs the policy by hand:
 
-For a live demo, run a swtpm, then increment pcr23
+
+---
+
+
+### By Reflection
+
+Alternatively, if you want to modify the core go-tpm library set to allow easy unmarshalling by reflection, see
 
 ```bash
 rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm  && \
@@ -86,6 +96,10 @@ rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm  && \
     sudo swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear --log level=2
 
 export TPM2TOOLS_TCTI="swtpm:port=2321"
+export TPM2OPENSSL_TCTI="swtpm:port=2321"
+export TPM2TSSENGINE_TCTI="swtpm:port=2321"
+export OPENSSL_MODULES=/usr/lib/x86_64-linux-gnu/ossl-modules/   # or wherever tpm2.so sits, eg /usr/lib/x86_64-linux-gnu/ossl-modules/tpm2.so
+
 tpm2_pcrextend 23:sha256=0x0000000000000000000000000000000000000000000000000000000000000000
 tpm2_flushcontext -t &&  tpm2_flushcontext -s  &&  tpm2_flushcontext -l
 tpm2_pcrread sha256:23
@@ -132,7 +146,41 @@ and finally the paramters on the wire
 
 to use wireshark, run  `wireshark trace.cap`
 
-To run as a go sample:
+---
+
+edit `$GOPATH/pkg/mod/github.com/google/go-tpm@v0.9.2-0.20240920144513-364d5f2f78b9/tpm2/reflect.go`
+
+```golang
+func ReqParameters(parms []byte, rspStruct any) error {
+	numHandles := len(taggedMembers(reflect.ValueOf(rspStruct).Elem(), "handle", false))
+
+	// Use the heuristic of "does interpreting the first 2 bytes of response
+	// as a length make any sense" to attempt encrypted parameter
+	// decryption.
+	// If the command supports parameter encryption, the first parameter is
+	// a 2B.
+	if len(parms) < 2 {
+		return nil
+	}
+
+	buf := bytes.NewBuffer(parms)
+	for i := numHandles; i < reflect.TypeOf(rspStruct).Elem().NumField(); i++ {
+		parmsField := reflect.ValueOf(rspStruct).Elem().Field(i)
+		if parmsField.Kind() == reflect.Ptr && hasTag(reflect.TypeOf(rspStruct).Elem().Field(i), "optional") {
+			if binary.BigEndian.Uint16(buf.Bytes()) == 0 {
+				// Advance the buffer past the zero size and skip to the
+				// next field of the struct.
+				buf.Next(2)
+				continue
+			}
+		}
+		if err := unmarshal(buf, parmsField); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+```
 
 ```bash
 $ go run main.go 
@@ -146,3 +194,7 @@ $ go run main.go
     2024/10/11 21:31:19 Encrypted 528661db24
     2024/10/11 21:31:19 Decrypted foooo
 ```
+
+
+---
+

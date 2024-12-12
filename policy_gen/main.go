@@ -278,29 +278,14 @@ func main() {
 	}
 
 	// ******** PolicyPCR Bytes
-
-	e, err := tpm2.CPBytes(tpm2.PolicyPCR{
-
-		PcrDigest: tpm2.TPM2BDigest{
-			Buffer: expectedDigest,
-		},
-		Pcrs: tpm2.TPMLPCRSelection{
-			PCRSelections: sel.PCRSelections,
-		},
-	})
-	if err != nil {
-		log.Fatalf("error executing CPBytes: %v", err)
-	}
-
 	// the cpbytes should be the same commandParameter as above
-	log.Printf("PolicyPCR CPBytes %s\n", hex.EncodeToString(e))
 
 	// now to test, generate the pcr policy but this time
 	// inject the cpbytes as the command directly
 	tp := tpm2.PolicyPCR{}
 
 	// inject the parameters into the struct
-	err = tpm2.ReqParameters(e, &tp)
+	err = tpm2.ReqParameters(commandParameter, &tp)
 	if err != nil {
 		log.Fatalf("error generating requestParameters: %v", err)
 	}
@@ -512,7 +497,7 @@ func main() {
 	tp2 := tpm2.PolicyPCR{
 		PolicySession: sess2.Handle(),
 	}
-	err = tpm2.ReqParameters(e, &tp2)
+	err = tpm2.ReqParameters(commandParameter, &tp2)
 	if err != nil {
 		log.Fatalf("error generating requestParameters: %v", err)
 	}
