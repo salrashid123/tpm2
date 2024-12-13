@@ -180,6 +180,29 @@ func ReqParameters(parms []byte, rspStruct any) error {
 	}
 	return nil
 }
+
+func CPBytes[R any](cmd Command[R, *R]) ([]byte, error) {
+	parms := taggedMembers(reflect.ValueOf(cmd), "handle", true)
+	if len(parms) == 0 {
+		return nil, nil
+	}
+
+	var firstParm bytes.Buffer
+	if err := marshalParameter(&firstParm, cmd, 0); err != nil {
+		return nil, err
+	}
+	firstParmBytes := firstParm.Bytes()
+
+	var result bytes.Buffer
+	result.Write(firstParmBytes)
+	// Write the rest of the parameters normally.
+	for i := 1; i < len(parms); i++ {
+		if err := marshalParameter(&result, cmd, i); err != nil {
+			return nil, err
+		}
+	}
+	return result.Bytes(), nil
+}
 ```
 
 ```bash

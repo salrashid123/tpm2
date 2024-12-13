@@ -194,6 +194,21 @@ func main() {
 		return
 	}
 
+	e, err := tpm2.CPBytes(tpm2.PolicyPCR{
+		PcrDigest: tpm2.TPM2BDigest{
+			Buffer: expectedDigest,
+		},
+		Pcrs: tpm2.TPMLPCRSelection{
+			PCRSelections: sel.PCRSelections,
+		},
+	})
+	if err != nil {
+		log.Fatalf("error executing CPBytes: %v", err)
+	}
+
+	// the cpbytes should be the same commandParameter as above
+	log.Printf("PolicyPCR CPBytes %s\n", hex.EncodeToString(e))
+
 	// now marshal each part and then concat them; thats the actual raw command thats run
 
 	// 23.7 TPM2_PolicyPCR https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-3-Commands-01.38.pdf
