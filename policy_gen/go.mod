@@ -1,13 +1,16 @@
 module main
 
-go 1.22
+go 1.22.0
 
-toolchain go1.22.2
+toolchain go1.22.4
 
 require (
+	github.com/foxboron/go-tpm-keyfiles v0.0.0-20241207144721-04534a2f2feb
 	github.com/google/go-tpm v0.9.2-0.20240920144513-364d5f2f78b9
-	github.com/google/go-tpm-tools v0.3.13-0.20230620182252-4639ecce2aba
+	github.com/google/go-tpm-tools v0.4.4
 )
 
-require golang.org/x/sys v0.15.0 // indirect
-
+require (
+	golang.org/x/crypto v0.19.0 // indirect
+	golang.org/x/sys v0.21.0 // indirect
+)
