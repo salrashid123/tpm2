@@ -20,6 +20,7 @@ import (
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/google/go-tpm/tpmutil"
+	util "github.com/salrashid123/tpm2genkey/util"
 )
 
 // rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm  && \
@@ -194,7 +195,7 @@ func main() {
 		return
 	}
 
-	e, err := tpm2.CPBytes(tpm2.PolicyPCR{
+	e, err := util.CPBytes(tpm2.PolicyPCR{
 		PcrDigest: tpm2.TPM2BDigest{
 			Buffer: expectedDigest,
 		},
@@ -226,16 +227,24 @@ func main() {
 
 	// create a key with a pcr and policyauthvalue
 	policyRefString := "foobar"
-	_, err = tpm2.PolicySecret{
+	p := tpm2.PolicySecret{
 		PolicySession: sess.Handle(),
 		AuthHandle:    tpm2.TPMRHEndorsement,
 		NonceTPM:      sess.NonceTPM(),
 		PolicyRef: tpm2.TPM2BNonce{
 			Buffer: []byte(policyRefString),
 		},
-	}.Execute(rwr)
+	}
+
+	policySecretBytes, err := util.CPBytes(p)
 	if err != nil {
-		log.Fatalf("error executing policyAuthValue: %v", err)
+		log.Fatalf("error getting CPBytes: %v", err)
+	}
+	log.Printf("PolicySecret CPBytes using util %s", hex.EncodeToString(policySecretBytes))
+
+	_, err = p.Execute(rwr)
+	if err != nil {
+		log.Fatalf("error executing PolicySecret: %v", err)
 	}
 
 	expirationTime := 10
@@ -275,14 +284,14 @@ func main() {
 		},
 	}.Execute(rwr)
 	if err != nil {
-		log.Fatalf("error executing policyAuthValue: %v", err)
+		log.Fatalf("error executing PolicyPCR: %v", err)
 	}
 
 	_, err = tpm2.PolicyAuthValue{
 		PolicySession: sess.Handle(),
 	}.Execute(rwr)
 	if err != nil {
-		log.Fatalf("error executing policyAuthValue: %v", err)
+		log.Fatalf("error executing PolicyAuthValue: %v", err)
 	}
 
 	pgd, err := tpm2.PolicyGetDigest{
@@ -300,44 +309,21 @@ func main() {
 	tp := tpm2.PolicyPCR{}
 
 	// inject the parameters into the struct
-	err = tpm2.ReqParameters(commandParameter, &tp)
+	err = util.ReqParameters(commandParameter, &tp)
 	if err != nil {
-		log.Fatalf("error generating requestParameters: %v", err)
+		log.Fatalf("error generating  PolicyPCR requestParameters: %v", err)
 	}
 
 	// do the same 'bytes' to struct conversion for policyauthvalue
 	ta := tpm2.PolicyAuthValue{}
 
 	// this doens't have a command body so specify nil
-	err = tpm2.ReqParameters(nil, &ta)
+	err = util.ReqParameters(nil, &ta)
 	if err != nil {
-		log.Fatalf("error generating requestParameters: %v", err)
+		log.Fatalf("error generating PolicyAuthValue requestParameters: %v", err)
 	}
 
 	/// ****************************
-
-	// ******** PolicySecret Bytes
-
-	a := make([]byte, 4)
-	hintHandle := tpm2.TPMRHEndorsement.HandleValue()
-	//hintHandle = 0
-	binary.BigEndian.PutUint32(a, hintHandle) // TPMRHEndorsement TPMHandle = 0x4000000B
-	log.Printf("PolicySecret objectHandleHint hex %s\n", hex.EncodeToString(a))
-
-	b := make([]byte, 2)
-	binary.BigEndian.PutUint16(b, uint16(len(tpm2.TPMRHEndorsement.KnownName().Buffer)))
-	var m []byte
-	m = append(m, b...)
-	m = append(m, tpm2.TPMRHEndorsement.KnownName().Buffer...)
-	log.Printf("PolicySecret Name %s\n", hex.EncodeToString(m)) // pg 79 Names https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-1-Architecture-01.07-2014-03-13.pdf
-
-	log.Printf("PolicySecret PolicyRef %s\n", hex.EncodeToString([]byte(policyRefString)))
-
-	var policySecretBytes []byte
-	policySecretBytes = append(policySecretBytes, a...)
-	policySecretBytes = append(policySecretBytes, m...)
-	policySecretBytes = append(policySecretBytes, []byte(policyRefString)...)
-	log.Printf("PolicySecret CPBytes %s", hex.EncodeToString(policySecretBytes))
 
 	// now create the key template and specify the policydigest
 	aesTemplate := tpm2.TPMTPublic{
@@ -423,42 +409,57 @@ func main() {
 
 	// ************** recreate policysecret
 
-	var na tpm2.TPMHandle
+	//var na tpm2.TPMHandle
 
-	hintBytes := policySecretBytes[:4]
-	hintInt32 := binary.BigEndian.Uint32(hintBytes)
-	log.Printf("Recreated PolicySecret objectHandleHint %d\n", hintInt32)
-
-	nameLengthBytes := policySecretBytes[4 : 4+2]
-	log.Printf("Recreated PolicySecret nameLengthBytes %s\n", hex.EncodeToString(nameLengthBytes))
-	nameBytes := policySecretBytes[4+2 : 4+2+binary.BigEndian.Uint16(nameLengthBytes)]
-	log.Printf("Recreated PolicySecret nameBytes %s\n", hex.EncodeToString(nameBytes))
-	nc, err := tpm2.Unmarshal[tpm2.TPM2BName](append(nameLengthBytes, nameBytes...))
-	if err != nil {
-		log.Fatalf("error executing policyAuthValue: %v", err)
-	}
-
-	nonceBytes := policySecretBytes[4+2+binary.BigEndian.Uint16(nameLengthBytes):]
-	log.Printf("Recreated PolicySecret nonceBytes %s\n", hex.EncodeToString(nonceBytes))
-	if hintInt32 != 0 {
-		if hex.EncodeToString(tpm2.HandleName(tpm2.TPMHandle(hintInt32)).Buffer) != hex.EncodeToString(nc.Buffer) {
-			log.Fatalf("names do not match: %v", err)
-		}
-		na = tpm2.TPMHandle(hintInt32)
-	} else {
-		na = tpm2.TPMHandle(binary.BigEndian.Uint32(nc.Buffer))
-	}
-	_, err = tpm2.PolicySecret{
+	ps := &tpm2.PolicySecret{
 		PolicySession: sess2.Handle(),
-		AuthHandle:    na, //tpm2.TPMHandle(hintInt32), // tpm2.TPMRHEndorsement,
 		NonceTPM:      sess2.NonceTPM(),
-		PolicyRef: tpm2.TPM2BNonce{
-			Buffer: nonceBytes,
-		},
-	}.Execute(rwr)
-	if err != nil {
-		log.Fatalf("error executing policyAuthValue: %v", err)
+		//AuthHandle:    na, //tpm2.TPMHandle(hintInt32), // tpm2.TPMRHEndorsement,
 	}
+
+	pda, err := util.ReqParametersPolicySecret(policySecretBytes, ps)
+	if err != nil {
+		log.Fatalf("error executing PolicySecret: %v", err)
+	}
+	_, err = pda.Execute(rwr)
+	if err != nil {
+		log.Fatalf("error executing PolicySecret execute: %v", err)
+	}
+
+	// hintBytes := policySecretBytes[:4]
+	// hintInt32 := binary.BigEndian.Uint32(hintBytes)
+	// log.Printf("Recreated PolicySecret objectHandleHint %d\n", hintInt32)
+
+	// nameLengthBytes := policySecretBytes[4 : 4+2]
+	// log.Printf("Recreated PolicySecret nameLengthBytes %s\n", hex.EncodeToString(nameLengthBytes))
+	// nameBytes := policySecretBytes[4+2 : 4+2+binary.BigEndian.Uint16(nameLengthBytes)]
+	// log.Printf("Recreated PolicySecret nameBytes %s\n", hex.EncodeToString(nameBytes))
+	// nc, err := tpm2.Unmarshal[tpm2.TPM2BName](append(nameLengthBytes, nameBytes...))
+	// if err != nil {
+	// 	log.Fatalf("error executing policyAuthValue: %v", err)
+	// }
+
+	// nonceBytes := policySecretBytes[4+2+binary.BigEndian.Uint16(nameLengthBytes):]
+	// log.Printf("Recreated PolicySecret nonceBytes %s\n", hex.EncodeToString(nonceBytes))
+	// if hintInt32 != 0 {
+	// 	if hex.EncodeToString(tpm2.HandleName(tpm2.TPMHandle(hintInt32)).Buffer) != hex.EncodeToString(nc.Buffer) {
+	// 		log.Fatalf("names do not match: %v", err)
+	// 	}
+	// 	na = tpm2.TPMHandle(hintInt32)
+	// } else {
+	// 	na = tpm2.TPMHandle(binary.BigEndian.Uint32(nc.Buffer))
+	// }
+	// _, err = tpm2.PolicySecret{
+	// 	PolicySession: sess2.Handle(),
+	// 	AuthHandle:    na, //tpm2.TPMHandle(hintInt32), // tpm2.TPMRHEndorsement,
+	// 	NonceTPM:      sess2.NonceTPM(),
+	// 	PolicyRef: tpm2.TPM2BNonce{
+	// 		Buffer: nonceBytes,
+	// 	},
+	// }.Execute(rwr)
+	// if err != nil {
+	// 	log.Fatalf("error executing policyAuthValue: %v", err)
+	// }
 
 	// TPM2.0 spec, Revision 1.38, Part 3 nonce must be present if expiration is non-zero.
 	// aHash ≔ HauthAlg(nonceTPM || expiration || cpHashA || policyRef)
@@ -512,7 +513,7 @@ func main() {
 	tp2 := tpm2.PolicyPCR{
 		PolicySession: sess2.Handle(),
 	}
-	err = tpm2.ReqParameters(commandParameter, &tp2)
+	err = util.ReqParameters(commandParameter, &tp2)
 	if err != nil {
 		log.Fatalf("error generating requestParameters: %v", err)
 	}
@@ -526,7 +527,7 @@ func main() {
 		PolicySession: sess2.Handle(),
 	}
 
-	err = tpm2.ReqParameters(nil, &ta2)
+	err = util.ReqParameters(nil, &ta2)
 	if err != nil {
 		log.Fatalf("error generating requestParameters: %v", err)
 	}

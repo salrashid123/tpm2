@@ -16,59 +16,8 @@ import (
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/google/go-tpm/tpmutil"
+	util "github.com/salrashid123/tpm2genkey/util"
 )
-
-/*
-
-rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm
-sudo swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --create-ek-cert
-sudo swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear --log level=5
-
-
-## new window
-
-export TPM2TOOLS_TCTI="swtpm:port=2321"
-export TPM2OPENSSL_TCTI="swtpm:port=2321"
-export TPM2TSSENGINE_TCTI="swtpm:port=2321"
-export OPENSSL_MODULES=/usr/lib/x86_64-linux-gnu/ossl-modules/
-
-tpm2_pcrextend 23:sha256=0x0000000000000000000000000000000000000000000000000000000000000000
-tpm2_pcrread sha256:23
-
-echo "foo" > secret.dat
-openssl rand  -out iv.bin 16
-
-
-tpm2_flushcontext -t &&  tpm2_flushcontext -s  &&  tpm2_flushcontext -l
-tpm2_pcrread sha256:23 -o pcr23_val.bin
-tpm2_startauthsession -S session.dat
-tpm2_policypcr -S session.dat -l sha256:23  -L policy.dat -f pcr23_val.bin
-tpm2_flushcontext session.dat
-
-
-printf '\x00\x00' > unique.dat
-tpm2_createprimary -C o -G ecc  -g sha256  -c primary.ctx -a "fixedtpm|fixedparent|sensitivedataorigin|userwithauth|noda|restricted|decrypt" -u unique.dat
-
-tpm2_create -g sha256 -G aes -u key.pub -r key.priv -C primary.ctx -L policy.dat
-tpm2_flushcontext -t &&  tpm2_flushcontext -s  &&  tpm2_flushcontext -l
-tpm2_load -C primary.ctx -u key.pub -r key.priv -n key.name -c aes.ctx
-
-
-tpm2_startauthsession --policy-session -S session.dat
-tpm2_policypcr -S session.dat -l "sha256:23"  -L policy.dat
-tpm2_encryptdecrypt -Q --iv iv.bin  -c aes.ctx -o cipher.out -p"session:session.dat"  secret.dat
-tpm2_flushcontext -t &&  tpm2_flushcontext -s  &&  tpm2_flushcontext -l
-
-tpm2_startauthsession --policy-session -S session.dat
-tpm2_policypcr -S session.dat -l "sha256:23"  -L policy.dat
-tpm2_encryptdecrypt -Q --iv iv.bin  -c aes.ctx -d -o plain.out cipher.out  -p"session:session.dat"
-tpm2_flushcontext -t &&  tpm2_flushcontext -s  &&  tpm2_flushcontext -l
-
-
-tpm2_encodeobject -C primary.ctx -u key.pub -r key.priv -o private.pem
-
-openssl asn1parse -inform PEM -in private.pem
-*/
 
 const (
 	pcr = 23
@@ -78,7 +27,7 @@ const ()
 
 var (
 	tpmPath = flag.String("tpm-path", "127.0.0.1:2321", "Path to the TPM device (character device or a Unix socket).")
-	in      = flag.String("in", "private.pem", "PEM file")
+	in      = flag.String("in", "/home/srashid/Desktop/tpm2/policy_gen/private.pem", "PEM file")
 )
 
 var TPMDEVICES = []string{"/dev/tpm0", "/dev/tpmrm0"}
@@ -124,7 +73,7 @@ func main() {
 		return
 	}
 
-	e, err := tpm2.CPBytes(tpm2.PolicyPCR{
+	e, err := util.CPBytes(tpm2.PolicyPCR{
 		PcrDigest: tpm2.TPM2BDigest{
 			Buffer: expectedDigest,
 		},
@@ -214,7 +163,7 @@ func main() {
 		PolicySession: sess2.Handle(),
 	}
 
-	err = tpm2.ReqParameters(commandParameter, tp2)
+	err = util.ReqParameters(commandParameter, tp2)
 	if err != nil {
 		log.Fatalf("error generating requestParameters: %v", err)
 	}

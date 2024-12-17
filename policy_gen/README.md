@@ -98,37 +98,11 @@ export TPM2TOOLS_TCTI="swtpm:port=2321"
 export TPM2OPENSSL_TCTI="swtpm:port=2321"
 export TPM2TSSENGINE_TCTI="swtpm:port=2321"
 export OPENSSL_MODULES=/usr/lib/x86_64-linux-gnu/ossl-modules/ 
+tpm2_flushcontext -t &&  tpm2_flushcontext -s  &&  tpm2_flushcontext -l
 
 tpm2_pcrextend 23:sha256=0x0000000000000000000000000000000000000000000000000000000000000000
 tpm2_pcrread sha256:23
 
-$ tpm2_pcrread
-  sha1:
-  sha256:
-    0 : 0x0000000000000000000000000000000000000000000000000000000000000000
-    1 : 0x0000000000000000000000000000000000000000000000000000000000000000
-    2 : 0x0000000000000000000000000000000000000000000000000000000000000000
-    3 : 0x0000000000000000000000000000000000000000000000000000000000000000
-    4 : 0x0000000000000000000000000000000000000000000000000000000000000000
-    5 : 0x0000000000000000000000000000000000000000000000000000000000000000
-    6 : 0x0000000000000000000000000000000000000000000000000000000000000000
-    7 : 0x0000000000000000000000000000000000000000000000000000000000000000
-    8 : 0x0000000000000000000000000000000000000000000000000000000000000000
-    9 : 0x0000000000000000000000000000000000000000000000000000000000000000
-    10: 0x0000000000000000000000000000000000000000000000000000000000000000
-    11: 0x0000000000000000000000000000000000000000000000000000000000000000
-    12: 0x0000000000000000000000000000000000000000000000000000000000000000
-    13: 0x0000000000000000000000000000000000000000000000000000000000000000
-    14: 0x0000000000000000000000000000000000000000000000000000000000000000
-    15: 0x0000000000000000000000000000000000000000000000000000000000000000
-    16: 0x0000000000000000000000000000000000000000000000000000000000000000
-    17: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-    18: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-    19: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-    20: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-    21: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-    22: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-    23: 0xF5A5FD42D16A20302798EF6ED309979B43003D2320D9F0E8EA9831A92759FB4B
 
 
 echo "foo" > secret.dat
@@ -170,123 +144,14 @@ openssl asn1parse -inform PEM -in private.pem
 
 ### By Reflection 
 
-Alternatively, if you want to modify the core go-tpm library set to allow easy unmarshalling by reflection, see
+The `_util*` examples here demonstrates how to use [tpm2genkey/util](https://github.com/salrashid123/tpm2genkey?tab=readme-ov-file#policy-command-parameters) library 
+to convert between the wire bytes for the PEM encoding and actual structures:
 
-* `policy_pcr_tpm2/` : PolicyPCR
-* `policy_signed_tpm2`: PolicySigned
-
-edit `$GOPATH/pkg/mod/github.com/google/go-tpm/tpm2/reflect.go`
-
-```golang
-func ReqParameters(parms []byte, rspStruct any) error {
-	numHandles := len(taggedMembers(reflect.ValueOf(rspStruct).Elem(), "handle", false))
-	if len(parms) < 2 {
-		return nil
-	}
-
-	buf := bytes.NewBuffer(parms)
-	for i := numHandles; i < reflect.TypeOf(rspStruct).Elem().NumField(); i++ {
-		parmsField := reflect.ValueOf(rspStruct).Elem().Field(i)
-		if parmsField.Kind() == reflect.Ptr && hasTag(reflect.TypeOf(rspStruct).Elem().Field(i), "optional") {
-			if binary.BigEndian.Uint16(buf.Bytes()) == 0 {
-				// Advance the buffer past the zero size and skip to the
-				// next field of the struct.
-				buf.Next(2)
-				continue
-			}
-		}
-		if err := unmarshal(buf, parmsField); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func CPBytes[R any](cmd Command[R, *R]) ([]byte, error) {
-	parms := taggedMembers(reflect.ValueOf(cmd), "handle", true)
-	if len(parms) == 0 {
-		return nil, nil
-	}
-
-	var firstParm bytes.Buffer
-	if err := marshalParameter(&firstParm, cmd, 0); err != nil {
-		return nil, err
-	}
-	firstParmBytes := firstParm.Bytes()
-
-	var result bytes.Buffer
-	result.Write(firstParmBytes)
-	// Write the rest of the parameters normally.
-	for i := 1; i < len(parms); i++ {
-		if err := marshalParameter(&result, cmd, i); err != nil {
-			return nil, err
-		}
-	}
-	return result.Bytes(), nil
-}
-```
-
-```bash
-$ go run policy_signed_tpm2/main.go 
-
-2024/12/13 12:17:44 Public -----BEGIN RSA PUBLIC KEY-----
-MIIBCgKCAQEA7H8qotS95oQoYZ6cFDhTYjSEQ9JMtVSHoAPXXfGk6qDvBUHzm0Oz
-hrMmVgAyenewUiwyNZsQP4ZdLntDJb9TcUBfTSEaVctdfdNUw57pfw+7p1it13CO
-ZlqiZNyM31+Vr0wTPVB39nsRrwGfn1hqyQ8eIgYms81qw3CyyRCnMLAmN+4l9+RP
-FB9EGczKWQhOnCf9vuFBiChjHCmoqppIKB57h2nDCLYVxnDgECQ0Q7W1FtZoFb8B
-o02rxsGeAEyJ5E/rWd3zNIiEIvZyGRi2RgRTiJce+KN557Iksg6B6huehWy1yGbY
-b1i4WNbBXHkXMPQgBMet4iQak92sq0EXrQIDAQAB
------END RSA PUBLIC KEY-----
-
-2024/12/13 12:17:44 Private -----BEGIN RSA PRIVATE KEY-----
-MIIEowIBAAKCAQEA7H8qotS95oQoYZ6cFDhTYjSEQ9JMtVSHoAPXXfGk6qDvBUHz
-m0OzhrMmVgAyenewUiwyNZsQP4ZdLntDJb9TcUBfTSEaVctdfdNUw57pfw+7p1it
-13COZlqiZNyM31+Vr0wTPVB39nsRrwGfn1hqyQ8eIgYms81qw3CyyRCnMLAmN+4l
-9+RPFB9EGczKWQhOnCf9vuFBiChjHCmoqppIKB57h2nDCLYVxnDgECQ0Q7W1FtZo
-Fb8Bo02rxsGeAEyJ5E/rWd3zNIiEIvZyGRi2RgRTiJce+KN557Iksg6B6huehWy1
-yGbYb1i4WNbBXHkXMPQgBMet4iQak92sq0EXrQIDAQABAoIBAQDfnwsgtsrtuk84
-pzJsSCpINOJQAv13hHtNyfQOJ5zKIux/6zG+wZBysNlx/nO8q4n02UeMupftiU54
-0iLXAYeUEctLch6lu0sm2/pNkui0tZq6DTcr/IkZrV/awVUPLiGqhOO4WWtljE9X
-TNCzanZmsT3L7EcSQw1NyjWzu2RruoK7UrM9tdEVUlM1Jn9L6p23TQTRyiT/1rFx
-3RZsDlP+Nta9KuCXxl+sjcNzPCgxOt+ki8atwxDlEPySeRUZw1L0aXNRY1XQjGR2
-gfOnfBFYZPzajK1hLEY07hkJTz3iP4sg6kKWESi1GEhzlixrAo1sMQNQTaXaYBK5
-4ysEwEIBAoGBAPLcNXiIaUVdBXf+MD9pR1j2oQPFY7IGKcDxglGHU/ULfn018DnO
-Gm2o8KkYVHRK3Yh9wv18DZSSfxMWfR1WDqqCQJN6nM7fUxe2+WAdzJp2ugpVYhu5
-konR6WzqUQD7zF5WabyOwvFjoEjQRDNCupp0iRZuU8AyJheWb3xb/amBAoGBAPlK
-0b0PzM49P4uKfLxNK64CcvoxvmhEPXqK/zdGJ5OiGOkt7aEQC6QBTeXe1RgBD5fp
-8+dJfSX+Yw6kUmbAUyUQOKFsPfOub3ckdxPRc08vsB7f7RQCzqk7Vq7mnFz4x7dS
-lkc0378dESUFe14BbKgcBbZA/0Lw2tsJzKNtWEwtAoGAUSaqK2ORoZ7qs+TZJGc+
-cwi+Vu8/V/5dN168CBgrQsebdaVvZzFqfVglSquZlN5rVi+H14H7W7j0A2HRXtsh
-vXIWt/ERssLHFjaK78YlVzvzAH71cIQ65hihYkaN2MFK0f8YB+zAUT7UEWCeWW6j
-wfbM1BT7oU5gkiMvj6OBiIECgYBLCsq4Ltln++f1CWsjA9fyOaqCxhabLG+VQ+Iv
-sV6YgmMdTkYKBdp7NClO2RUsdKVNBY/2P5j8pucKsUxcwehFb+ycKwk7IXdMVh3C
-SXp8i85ofN/Q9kdfig09+Q14ryrvdFzocnIoBYfzrQLF+YfL0yOlCUvNytMWvIxt
-Zaz+wQKBgCOC1Jbk7i92zAC4017hbNV6U26qS3X+5x0sPUGen/5bMWoAfwMl0w7n
-IzbDRqvFHy7czu17l87vkZIMx8NBycBF7o3MpUQL4qhSI/TOZklAnqAh5k1MuKhL
-9wf3KDr3UQfqc6QD2rarBduW37dHJ0zolHdBBUvwgVtAuA11OsXY
------END RSA PRIVATE KEY-----
-
-2024/12/13 12:17:44 loaded external 000b9201beca4af3d04b013d4a91f84d93100c1c1f4541e7789b611a9947d4d54ba3
-2024/12/13 12:17:44 ======= createPrimary ========
-2024/12/13 12:17:44 ======= create ========
-2024/12/13 12:17:44 PolicyPCR CPBytes 0020e2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf900000001000b03000080
-2024/12/13 12:17:44 pcrSelectionSegment 00000001000b03000080
-2024/12/13 12:17:44 pcrDigestSegment 0020e2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf9
-2024/12/13 12:17:44 commandParameter 0020e2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf900000001000b03000080
-2024/12/13 12:17:44 PolicySecret objectHandleHint hex 4000000b
-2024/12/13 12:17:44 PolicySecret Name 00044000000b
-2024/12/13 12:17:44 PolicySecret PolicyRef 666f6f626172
-2024/12/13 12:17:44 PolicySecret CPBytes 4000000b00044000000b666f6f626172
-2024/12/13 12:17:44 Recreated PolicySecret objectHandleHint 1073741835
-2024/12/13 12:17:44 Recreated PolicySecret nameLengthBytes 0004
-2024/12/13 12:17:44 Recreated PolicySecret nameBytes 4000000b
-2024/12/13 12:17:44 Recreated PolicySecret nonceBytes 666f6f626172
-2024/12/13 12:17:44 Sig 9ab6ff653c2e139e07e12929bbbf63bd849a883149612c10c990a2c4ebd5728bac90b2a8dcbe83b2a30869434c2c9e87ac21a2d37344e363849cb988eafffd061fefedf91b9129bc286d1a13826019af0a90059fbb4d7fcc0f4e1d35431c90827c3d407ff6e20d46fa65e6377ea96da1e7c54dce85c035f2ab4f2274bddbd1b53a1b3ce31b2a144fa2e9dfd3f3324db0df534b9ad2730823898e83bda7550b92c74399e88a8a7d1d0ddebb1c9b5b736976b78eb2c2d88208abb7b3e194215212f6835b9fd56b52b0564b20c8c7c87578cda842379f0649a797f62e9ae10354fd1f12a605efb4817d4b99289e22112299df9a8ad3c167f66c41033393ad2d6711
-2024/12/13 12:17:44 IV: 992ab674d70519fcb9e8f8cbfb96912a
-2024/12/13 12:17:44 Encrypted 85fddcf1db
-
-```
-
+* `policy_pcr_util/` : Regenerate policy PCR using the utility
+* `policy_pcr_direct`: Regenerate policy PCR manually
+* `policy_secret_util/` : Regenerate policy Secret using the utility
+* `policy_signed_util/`: Regenerate PolicySigned
+* `policy_authorize_direct/`: Regenerate PolicyAuthorize manually 
 
 ---
 
