@@ -152,6 +152,89 @@ to convert between the wire bytes for the PEM encoding and actual structures:
 * `policy_secret_util/` : Regenerate policy Secret using the utility
 * `policy_signed_util/`: Regenerate PolicySigned
 * `policy_authorize_direct/`: Regenerate PolicyAuthorize manually 
+* `policy_authorize_util/`: Regenerate PolicyAuthorize using the utility 
+
+
+---
+
+#### PolicyPCR
+
+```log
+$ go run policy_pcr_util/pcrgen.go 
+2024/12/20 07:20:31 PolicyPCR CPBytes 0020e2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf900000001000b03000080
+2024/12/20 07:20:31 pcrSelectionSegment 00000001000b03000080
+2024/12/20 07:20:31 pcrDigestSegment 0020e2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf9
+2024/12/20 07:20:31 commandParameter 0020e2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf900000001000b03000080
+2024/12/20 07:20:31 IV: 27641433d56ae667cb188a8c9315a7db
+2024/12/20 07:20:31 Encrypted 2892d0f02c
+```
+
+#### PolicySecret
+
+```log
+$ go run policy_secret_util/secretgen.go 
+2024/12/20 07:21:08 ======= createPrimary ========
+2024/12/20 07:21:08 ======= create ========
+2024/12/20 07:21:08 PolicySecret Bytes: 4000000b00044000000b
+2024/12/20 07:21:08 IV: 9216bafdc6e74ebc9cb580d2f3c3f4e8
+2024/12/20 07:21:08 Encrypted 61eeead96f
+2024/12/20 07:21:08 Decrypted foooo
+```
+
+#### PolicyAuthorize:
+
+```log
+$ go run policy_authorize_util/authorizegen.go 
+2024/12/20 07:17:12 Public 
+-----BEGIN RSA PUBLIC KEY-----
+MIIBCgKCAQEA4FJVQw2iQzO5E9/H5zs97OaIlhVfVc18zVQkLq6rC177uLrnhxjf
+qh62ktFBDgVRvWTEjkLUBEBmQZf13RUmjG4PWK2kZ5O2hNj63v1afvkM1gFttVuH
+lX+YF3kAZMziM2/oDLlPwLyiWp1N5suGjs6l+83GiASIyYe6JIZHqR0Etjs2/CNk
+6fqkIqeCoS82zQiQeb2BJ1UqMLO/Kg5yiseXULXK1bK3+ox/vHDwfI9BqOnDVgr3
+P5VjfVRqwpfNlCJvTEYxKDj3/44EnYvfD+BzbVES8BXIHykeddkItjz393EfweyG
+sP0zHaPFjxzA/wusMmwEa/8Uozj4n7DZvQIDAQAB
+-----END RSA PUBLIC KEY-----
+
+2024/12/20 07:17:12 Private 
+-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEA4FJVQw2iQzO5E9/H5zs97OaIlhVfVc18zVQkLq6rC177uLrn
+hxjfqh62ktFBDgVRvWTEjkLUBEBmQZf13RUmjG4PWK2kZ5O2hNj63v1afvkM1gFt
+tVuHlX+YF3kAZMziM2/oDLlPwLyiWp1N5suGjs6l+83GiASIyYe6JIZHqR0Etjs2
+/CNk6fqkIqeCoS82zQiQeb2BJ1UqMLO/Kg5yiseXULXK1bK3+ox/vHDwfI9BqOnD
+Vgr3P5VjfVRqwpfNlCJvTEYxKDj3/44EnYvfD+BzbVES8BXIHykeddkItjz393Ef
+weyGsP0zHaPFjxzA/wusMmwEa/8Uozj4n7DZvQIDAQABAoIBAQDD76aBtzrwMBGN
+Bn55vwlMD+FmFqz7KU3Fm6UvEWpduE1vAfKR0mwrEECw5Q5JzOOk5ou5Jy5BuG6Z
+BL7AqWTObKQC9UkRH7jhORWICQwutCM+GmlVa+l178lNV2e8pClAfJLX6lV7KEk3
+lQcifMu/mUjqNMcgr7U7Ms6ocJHPZ+IFvmAYg6JGCpVhYeaOrd10tpxc6F3aQ7HY
+wsU5H0ZEB4o1DfEZbI+6idUZA4jrLrKMDLAIHVvBbz86W8mkzsJUBp3TH38VtvZC
+UBjE0nWU6UAElzJ4t5XiCzoivLqdn2QbBOvEoL2HC/0OmvSxzJnaLxo7r4g2OkOB
+8WKcAE2RAoGBAOHzPYeE/6MF+6pGr/hFra7hfHN3MApikZQh3XpbopHMuMZBS6LS
+SO3QwgfMsEGG8QAv8eHiyKmu4mzpO0fJQX9+Fr3rO6Z0Lfbi7unclZmX+yaaWGvA
+Mhqi4sORgHGzqsLn9LDmN1VXQNNr4s8HzrkAGd8Ld8R2YaWGkCtRpLIjAoGBAP4n
+pZhSpg+7sJLyontPjf+eCW8nxmPieDjbkPXiKvtT3VhrKc1k02Egf/cXjSgIkEuM
+nPQxkRoIybbVznPqgYJcfFhpnyXzZPJwCsvhRZPXB/aqZ3CTCQRTd3CZgZ6jSfLT
+vAN8SgOcarH4FzSv59Ge6mlgXiY10rKfIgddPVKfAoGAeeOX+7V5ml4t5yt+3jXo
+fgDR/A/98HxAAGNMcSdhyblgrEKpJMq/4NrO8RowswiyleFHYQ3QJglbyFkBS7Z8
+COTiK83sPd1KtnaxX6NJaLQeHjMBJA9oeAoKvmmNmsjLg51R2OQ4UWdiZys6DWku
+0YoGatZq46bhAkRXHadLa3UCgYBhk0UfQvPgbHWxJRg+cV+Z+Mm0dDfVl1gCtEFm
+NUu9LAh57sKgyYnh60FV0yPtb8Q+TSDhG7qSnTccS9+0Xx8TtoBCzWI9hsGF1oA+
+oCE/TjoPeIK4FKtMjuL3RugdyKEWajXvvKMJ2d6Yrx/xqWs97l4e0NG0p8tZqoC9
+BQ4LDwKBgEpEsVX6t9ScKvtz9ZcvpmjF8/hHF+s+P7EzivpfPjoY06vRVT1sOI+p
+EFSXTH8+GSEH55zfwfQDHyCcInT0aswKVB2aY3WpYLCwtOhvcI3dtiLPDe87pQQm
+p/SGNMTdHWKAIpKx5hzluVbBA3ivfH/MnHSThjtoy7TIeLdFRO+p
+-----END RSA PRIVATE KEY-----
+
+2024/12/20 07:17:12 loaded external 000be78b2bdf27d2e4d4406fd62d0e88f4e5bb1e57c05f954ad2c1b3664aa672be54
+2024/12/20 07:17:12 ======= create a policy session for authorized key ========
+2024/12/20 07:17:12 ======= create PolicyAuthorize ========
+2024/12/20 07:17:12 ======= create PolicyPCR ========
+2024/12/20 07:17:12 PolicyPCR CPBytes 000000000001000b03000080
+2024/12/20 07:17:12 Full PolicyCommand: 01160001000b000600400000001000100800000100010100e05255430da24333b913dfc7e73b3dece68896155f55cd7ccd54242eaeab0b5efbb8bae78718dfaa1eb692d1410e0551bd64c48e42d40440664197f5dd15268c6e0f58ada46793b684d8fadefd5a7ef90cd6016db55b87957f9817790064cce2336fe80cb94fc0bca25a9d4de6cb868ecea5fbcdc6880488c987ba248647a91d04b63b36fc2364e9faa422a782a12f36cd089079bd8127552a30b3bf2a0e728ac79750b5cad5b2b7fa8c7fbc70f07c8f41a8e9c3560af73f95637d546ac297cd94226f4c46312838f7ff8e049d8bdf0fe0736d5112f015c81f291e75d908b63cf7f7711fc1ec86b0fd331da3c58f1cc0ff0bac326c046bff14a338f89fb0d9bd0007666f6f6f6f6f6f0014000b01000ac61d48da8af010527d0a5cacd8a9aa78dcdb7da1a6ee5990abd86d05622ab5dc1eaceb901b8e86e5440de35b790925927dc6f02ec62cde9831b5bbf472e9256ef25a6f51b82847cc24f9ed4f6952735a449d82da32de6f333f58195419aea890110de269d49abc03045d984634a43657de66a25f6cd6f6a149e6e15aefb898b97ae54ebed9f63983f1b3a8dbd8239acccd54e6e02c38bbb57ac195c7d639767f80d6d27d389dcd057409a0a2711ec434642195c20462a38654573a9d19e4c53b2ab215035907846d86d68a14917d2ecb2b8b143cbd550edfe336e926065c9e762d53f556e216ca8ebe94b7d5e15062bb8a457cb29874500b48f020a37bd341
+2024/12/20 07:17:12 ======= createPrimary ========
+2024/12/20 07:17:12 IV: 79cc541e48cfb44d24f3b66f081c359d
+2024/12/20 07:17:12 Encrypted e28455a3be
+```
+
 
 ---
 

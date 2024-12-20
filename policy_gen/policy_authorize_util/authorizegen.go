@@ -7,7 +7,6 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/pem"
 	"flag"
@@ -21,6 +20,7 @@ import (
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/google/go-tpm/tpmutil"
+	util "github.com/salrashid123/tpm2genkey/util"
 )
 
 const (
@@ -196,15 +196,24 @@ func main() {
 		},
 	}
 
-	_, err = tpm2.PolicyPCR{
+	// calculate the Approved Policys bytes
+	p := tpm2.PolicyPCR{
 		PolicySession: sesspcr.Handle(),
 		Pcrs: tpm2.TPMLPCRSelection{
 			PCRSelections: sel.PCRSelections,
 		},
-	}.Execute(rwr)
+	}
+	e, err := util.CPBytes(p)
+	if err != nil {
+		log.Fatalf("error executing CPBytes: %v", err)
+	}
+	_, err = p.Execute(rwr)
 	if err != nil {
 		log.Fatalf("error executing policyAuthValue: %v", err)
 	}
+
+	// the cpbytes should be the same commandParameter as above
+	log.Printf("PolicyPCR CPBytes %s\n", hex.EncodeToString(e))
 
 	// get the pcr digest
 	pcrPolicyDigest, err := tpm2.PolicyGetDigest{
@@ -231,18 +240,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("error executing sign: %v", err)
 	}
-	log.Printf("ApprovedPolicy+policyRef signature %s\n", hex.EncodeToString(sigpolicy))
-
-	// now create the TPM2B_PUBLIC segment from the tepmplate
-	rsa_TPMTPublic_bytes := tpm2.Marshal(rsaTemplate)
-	rsa_TPM2BPublic := tpm2.BytesAs2B[tpm2.TPM2BPublic](rsa_TPMTPublic_bytes)
-	rsa_TPM2BPublic_bytes := tpm2.Marshal(rsa_TPM2BPublic)
-	log.Printf("TPM2B_PUBLIC keySignSegment %s", hex.EncodeToString(rsa_TPM2BPublic_bytes))
-
-	policyRefDigestSegment := tpm2.Marshal(tpm2.TPM2BDigest{
-		Buffer: []byte(policyRefString),
-	})
-	log.Printf("policyRefSegment %s", hex.EncodeToString(policyRefDigestSegment))
+	//log.Printf("ApprovedPolicy+policyRef signature %s\n", hex.EncodeToString(sigpolicy))
 
 	// get the signature
 	sig := &tpm2.TPMTSignature{
@@ -257,14 +255,20 @@ func main() {
 			},
 		),
 	}
-	sig_bytes := tpm2.Marshal(sig)
-	log.Printf("signatureSegment %s", hex.EncodeToString(sig_bytes))
 
-	policyCommand := append(rsa_TPM2BPublic_bytes, policyRefDigestSegment...)
-	policyCommand = append(policyCommand, sig_bytes...)
+	policyCommand, err := util.CPBytesPolicyAuthorize(policyRefString, rsaTemplate, *sig)
+	if err != nil {
+		log.Fatalf("error reading policyCommand: %v", err)
+	}
+
 	log.Printf("Full PolicyCommand: %s\n", hex.EncodeToString(policyCommand))
 
 	/// ****************************
+
+	flush := tpm2.FlushContext{
+		FlushHandle: l.ObjectHandle,
+	}
+	_, err = flush.Execute(rwr)
 
 	log.Printf("======= createPrimary ========")
 
@@ -366,15 +370,30 @@ func main() {
 	}
 	defer cleanup2()
 
-	_, err = tpm2.PolicyPCR{
+	// recreate the approved Policy from the bytes, in this case its a PCR Policy
+	tp2 := &tpm2.PolicyPCR{
 		PolicySession: sess2.Handle(),
-		Pcrs: tpm2.TPMLPCRSelection{
-			PCRSelections: sel.PCRSelections,
-		},
-	}.Execute(rwr)
-	if err != nil {
-		log.Fatalf("error executing PolicyPCR: %v", err)
 	}
+
+	err = util.ReqParameters(e, tp2)
+	if err != nil {
+		log.Fatalf("error generating requestParameters: %v", err)
+	}
+
+	_, err = tp2.Execute(rwr)
+	if err != nil {
+		log.Fatalf("error generating requestParameters: %v", err)
+	}
+
+	// _, err = tpm2.PolicyPCR{
+	// 	PolicySession: sess2.Handle(),
+	// 	Pcrs: tpm2.TPMLPCRSelection{
+	// 		PCRSelections: sel.PCRSelections,
+	// 	},
+	// }.Execute(rwr)
+	// if err != nil {
+	// 	log.Fatalf("error executing PolicyPCR: %v", err)
+	// }
 
 	// get the pcr digest
 	pcrPolicyDigest2, err := tpm2.PolicyGetDigest{
@@ -392,104 +411,18 @@ func main() {
 
 	// *******************************************************************************
 
-	keyLengthBytes := policyCommand[:2]
-	tp, err := tpm2.Unmarshal[tpm2.TPM2BPublic](policyCommand[:2+binary.BigEndian.Uint16(keyLengthBytes)])
-	if err != nil {
-		log.Fatalf("can't getting TPM2BPublic: %v", err)
-	}
-	reGenKeyPublic, err := tp.Contents()
-	if err != nil {
-		log.Fatalf("error getting  TPMTPublic: %v", err)
-	}
-
-	flush := tpm2.FlushContext{
-		FlushHandle: l.ObjectHandle,
-	}
-	_, err = flush.Execute(rwr)
-
-	l2, err := tpm2.LoadExternal{
-		InPublic:  tpm2.New2B(*reGenKeyPublic),
-		Hierarchy: tpm2.TPMRHOwner,
-	}.Execute(rwr)
-	if err != nil {
-		log.Fatalf("can't load key: %v", err)
-	}
-	defer func() {
-		flush := tpm2.FlushContext{
-			FlushHandle: l2.ObjectHandle,
-		}
-		_, err = flush.Execute(rwr)
-	}()
-
-	remainder := policyCommand[2+binary.BigEndian.Uint16(keyLengthBytes):]
-	//extract policyRefDigestSegment
-	lenpolicyRefDigestSegment := remainder[:2]
-	dda, err := tpm2.Unmarshal[tpm2.TPM2BDigest](remainder[:2+binary.BigEndian.Uint16(lenpolicyRefDigestSegment)])
-	if err != nil {
-		log.Fatalf("can't load policyRefDigestSegment: %v", err)
-	}
-
-	toDigest2 := append(pcrPolicyDigest2.PolicyDigest.Buffer, dda.Buffer...)
-	msgHash2 := sha256.New()
-	_, err = msgHash2.Write(toDigest2)
-	if err != nil {
-		log.Fatalf("error getting hash %v\n", err)
-	}
-	msgHashpcrSum2 := msgHash2.Sum(nil)
-
-	//extract TPMTSignature
-
-	regenSig := remainder[2+binary.BigEndian.Uint16(lenpolicyRefDigestSegment):]
-
-	tts, err := tpm2.Unmarshal[tpm2.TPMTSignature](regenSig)
-	if err != nil {
-		log.Fatalf("can't load TPMTSignature: %v", err)
-	}
-
-	// now ready
-
-	v, err := tpm2.VerifySignature{
-		KeyHandle: l2.ObjectHandle,
-		Digest: tpm2.TPM2BDigest{
-			Buffer: msgHashpcrSum2,
-		},
-		Signature: *tts,
-	}.Execute(rwr)
-	if err != nil {
-		log.Fatalf("error executing VerifySignature: %v", err)
-	}
-
-	// v, err := tpm2.VerifySignature{
-	// 	KeyHandle: l2.ObjectHandle,
-	// 	Digest: tpm2.TPM2BDigest{
-	// 		Buffer: msgHashpcrSum,
-	// 	},
-	// 	Signature: tpm2.TPMTSignature{
-	// 		SigAlg: tpm2.TPMAlgRSASSA,
-	// 		Signature: tpm2.NewTPMUSignature(
-	// 			tpm2.TPMAlgRSASSA,
-	// 			&tpm2.TPMSSignatureRSA{
-	// 				Hash: tpm2.TPMAlgSHA256,
-	// 				Sig: tpm2.TPM2BPublicKeyRSA{
-	// 					Buffer: sigpolicy,
-	// 				},
-	// 			},
-	// 		),
-	// 	},
-	// }.Execute(rwr)
-	// if err != nil {
-	// 	log.Fatalf("error executing VerifySignature: %v", err)
-	// }
-
 	//***********************
 
-	_, err = tpm2.PolicyAuthorize{
-		PolicySession:  sess2.Handle(),
-		ApprovedPolicy: pcrPolicyDigest2.PolicyDigest, // use the expected digest we want to sign
-		KeySign:        l2.Name,
-		PolicyRef:      *dda,
-		CheckTicket:    v.Validation,
-	}.Execute(rwr)
+	r := tpm2.PolicyAuthorize{
+		PolicySession: sess2.Handle(),
+	}
+
+	c, err := util.ReqParametersPolicyAuthorize(rwr, policyCommand, pcrPolicyDigest2.PolicyDigest, &r)
+	if err != nil {
+		log.Fatalf("error executing ReqParametersPolicyAuthorize: %v", err)
+	}
+
+	c.Execute(rwr)
 	if err != nil {
 		log.Fatalf("error executing PolicyAuthorize: %v", err)
 	}
