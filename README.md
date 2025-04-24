@@ -165,6 +165,8 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 
 - `resource_manager`:  `tpm0`` vs `tpmrm0`
 
+- `kdf`:  Key Derivation Functions (KDF) based on the recommendations of NIST SP 800-108 using TPM baced HMAC
+
 ---
 
 ### Software TPM
