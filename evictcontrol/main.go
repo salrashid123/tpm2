@@ -208,4 +208,26 @@ func main() {
 		log.Fatalf("Failed to verify signature: %v", err)
 	}
 
+	// now close it out
+
+	kp, err := tpm2.ReadPublic{
+		ObjectHandle: tpm2.TPMHandle(persistentHandle),
+	}.Execute(rwr)
+	if err != nil {
+		log.Fatalf("Failed to read persistnet handle public: %v", err)
+	}
+
+	_, err = tpm2.EvictControl{
+		Auth: tpm2.TPMRHOwner,
+		ObjectHandle: &tpm2.NamedHandle{
+			Handle: tpm2.TPMIDHPersistent(persistentHandle),
+			Name:   kp.Name,
+		},
+		PersistentHandle: tpm2.TPMIDHPersistent(persistentHandle),
+	}.Execute(rwr)
+	if err != nil {
+		log.Fatalf("Failed toevit : %v", err)
+	}
+	log.Println("evicted")
+
 }
