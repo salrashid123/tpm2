@@ -66,3 +66,160 @@ export TPM2OPENSSL_TCTI="swtpm:port=2321"
 
 tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
 ```
+
+
+#### Policy AuthValue and DuplicateSelect
+
+initialize and AES key with Password using [tpmcopy](https://github.com/salrashid123/tpmcopy/tree/main?tab=readme-ov-file#aes)
+
+```json
+{
+    "description": "Policy OR",
+    "policyDigests": [
+        {
+            "hashAlg": "sha256",
+            "digest": "117561e1e6fb636da557977c52c0f9424dcd96f175d12e2ddb8f588c84e63ab8"
+        }
+    ],
+    "policy": [
+        {
+            "type": "POLICYOR",
+            "policyDigests": [
+                {
+                    "hashAlg": "sha256",
+                    "digest": "117561e1e6fb636da557977c52c0f9424dcd96f175d12e2ddb8f588c84e63ab8"
+                }
+            ],
+            "branches": [
+                {
+                    "name": "authvalue",
+                    "description": "Policy AuthValue",
+                    "policy": [
+                        {
+                            "type": "POLICYAUTHVALUE",
+                            "policyDigests": [
+                                {
+                                    "hashAlg": "sha256",
+                                    "digest": "8fcd2169ab92694e0c633f1ab772842b8241bbc20288981fc7ac1eddc1fddb0e"
+                                }
+                            ]
+                        }
+                    ],
+                    "policyDigests": [
+                        {
+                            "hashAlg": "sha256",
+                            "digest": "8fcd2169ab92694e0c633f1ab772842b8241bbc20288981fc7ac1eddc1fddb0e"
+                        }
+                    ]
+                },
+                {
+                    "name": "duplicationSelect",
+                    "description": "Policy DuplicateSelect",
+                    "policy": [
+                        {
+                            "type": "POLICYDUPLICATIONSELECT",
+                            "policyDigests": [
+                                {
+                                    "hashAlg": "sha256",
+                                    "digest": "e0f9c898e43bb6d60c7a9f7c24e1641e11fd1092fc6c0a032c587cb78aa61e71"
+                                }
+                            ],
+                            "objectName": "",
+                            "newParentName": "000bff03fd26a7d1c1164964b6fd790cf7db7f6177c2034bfb4a2aaef8f3b13792f6",
+                            "includeObject": "NO"
+                        }
+                    ],
+                    "policyDigests": [
+                        {
+                            "hashAlg": "sha256",
+                            "digest": "e0f9c898e43bb6d60c7a9f7c24e1641e11fd1092fc6c0a032c587cb78aa61e71"
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
+```
+
+#### Policy PCR and DuplicateSelect
+
+initialize and AES key with PCR Policy using [tpmcopy](https://github.com/salrashid123/tpmcopy/tree/main)
+
+
+```json
+{
+    "description": "Policy OR",
+    "policyDigests": [
+        {
+            "hashAlg": "sha256",
+            "digest": "ecc7a235ba2a4e2ffb2e30cadae639bb3fab82b9231ea88b3bde38764677554e"
+        }
+    ],
+    "policy": [
+        {
+            "type": "POLICYOR",
+            "policyDigests": [
+                {
+                    "hashAlg": "sha256",
+                    "digest": "ecc7a235ba2a4e2ffb2e30cadae639bb3fab82b9231ea88b3bde38764677554e"
+                }
+            ],
+            "branches": [
+                {
+                    "name": "pcrPolicy",
+                    "description": "Policy PCR",
+                    "policy": [
+                        {
+                            "type": "POLICYPCR",
+                            "policyDigests": [
+                                {
+                                    "hashAlg": "sha256",
+                                    "digest": "2094289099c2cb180f28f99c71c8d681123935f7330bdae5aa1ae1e09f0fe532"
+                                }
+                            ],
+                            "pcrs": [
+                                {
+                                    "pcr": 23,
+                                    "hashAlg": "sha256",
+                                    "digest": "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b"
+                                }
+                            ]
+                        }
+                    ],
+                    "policyDigests": [
+                        {
+                            "hashAlg": "sha256",
+                            "digest": "2094289099c2cb180f28f99c71c8d681123935f7330bdae5aa1ae1e09f0fe532"
+                        }
+                    ]
+                },
+                {
+                    "name": "duplicationSelect",
+                    "description": "Policy DuplicateSelect",
+                    "policy": [
+                        {
+                            "type": "POLICYDUPLICATIONSELECT",
+                            "policyDigests": [
+                                {
+                                    "hashAlg": "sha256",
+                                    "digest": "e0f9c898e43bb6d60c7a9f7c24e1641e11fd1092fc6c0a032c587cb78aa61e71"
+                                }
+                            ],
+                            "objectName": "",
+                            "newParentName": "000bff03fd26a7d1c1164964b6fd790cf7db7f6177c2034bfb4a2aaef8f3b13792f6",
+                            "includeObject": "NO"
+                        }
+                    ],
+                    "policyDigests": [
+                        {
+                            "hashAlg": "sha256",
+                            "digest": "e0f9c898e43bb6d60c7a9f7c24e1641e11fd1092fc6c0a032c587cb78aa61e71"
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
+```
