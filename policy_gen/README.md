@@ -65,7 +65,7 @@ so given that  `0020E2F61C3F71D1DEFD3FA999DFA36953755C690689799962B48BEBD836974E
 	//    buffer[size]{:sizeof(TPMU_HA)} BYTE
 
 	// get the length of the digest, first 2bytes is length of buffer
-    commandParameter := "0020e2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf900000001000b03000080"
+	commandParameter := "0020e2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf900000001000b03000080"
 
 	l := binary.BigEndian.Uint16(commandParameter[:2])
 	dgst := commandParameter[:l+2]
@@ -88,8 +88,8 @@ to setup, run:
 
 ```bash
 rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm
-sudo swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --create-ek-cert
-sudo swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear --log level=5
+swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --create-ek-cert
+swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear --log level=5
 
 
 ## new window 
