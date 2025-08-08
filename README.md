@@ -14,6 +14,7 @@ for the `go-tpm` examples, i am slowly migrating them over to the [go-tpm direct
 
 ### Key transfer
 
+* [tpmcopy: Transfer RSA|ECC|AES|HMAC key to a remote Trusted Platform Module (TPM)](https://github.com/salrashid123/tpmcopy)
 * [Go-TPM-Wrapping - Go library for encrypting data using Trusted Platform Module (TPM)](https://github.com/salrashid123/go-tpm-wrapping)
 * [TINK Go TPM extension](https://github.com/salrashid123/tink-go-tpm/)
 * [Transferring RSA and Symmetric keys with GCP vTPMs](https://github.com/salrashid123/gcp_tpm_sealed_keys)
@@ -26,7 +27,7 @@ for the `go-tpm` examples, i am slowly migrating them over to the [go-tpm direct
 * [crypto.Signer, implementations for Google Cloud KMS and Trusted Platform Modules](https://github.com/salrashid123/signer)
 * [golang-jwt for Trusted Platform Module (TPM)](https://github.com/salrashid123/golang-jwt-tpm)
 
-### CLoud Authentication
+### Cloud Authentication
 
 For authentication using TPM based keys to cloud providers
 
@@ -50,7 +51,7 @@ For authentication using TPM based keys to cloud providers
 
 * [mTLS with TPM bound private key](https://github.com/salrashid123/go_tpm_https_embed)
 * [TPM based TLS using Attested Keys (experimental)](https://github.com/salrashid123/tls_ak)
-
+* [TPM One Time Password using TLS SessionKey](https://github.com/salrashid123/tls_tpm_one_time_password)
 
 ---
 

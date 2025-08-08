@@ -155,6 +155,8 @@ to convert between the wire bytes for the PEM encoding and actual structures:
 * `policy_authorize_util/`: Regenerate PolicyAuthorize using the utility 
 
 
+for end to end example, see [tpmcopy: TPMPolicy Syntax PEM Encoding](https://github.com/salrashid123/tpmcopy?tab=readme-ov-file#tpmpolicy-syntax-pem-encoding)
+
 ---
 
 #### PolicyPCR
