@@ -1,5 +1,7 @@
 from tpm2_pytss import *
 from tpm2_pytss.internal.templates import _ek
+# from tpm2_pytss.internal.templates import ek_rsa2048
+
 from tpm2_pytss.tsskey import TSSPrivKey
 
 
@@ -87,8 +89,8 @@ priv, _ = TPM2B_PRIVATE.unmarshal(pr)
 aesKeyHandle = ectx.load(primary1, priv,pub)
 ectx.flush_context(primary1)
 
-
 nv, tmpl = _ek.EK_RSA2048
+# tmpl = ek_rsa2048.template
 
 inSensitive = TPM2B_SENSITIVE_CREATE()
 handle, outpub, _, _, _ = ectx.create_primary(

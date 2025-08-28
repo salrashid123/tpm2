@@ -15,6 +15,7 @@ Ref:
 ```bash
 apt-get install libtss2-dev
 python3 -m pip install tpm2-pytss
+# python3 -m pip install git+https://github.com/tpm2-software/tpm2-pytss.git
 ```
 
 
