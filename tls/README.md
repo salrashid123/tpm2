@@ -8,6 +8,10 @@ Snippet which shows how to setup a simple https mtls server using `openssl` and 
 * [TPM based TLS using Attested Keys](https://github.com/salrashid123/tls_ak)
 * [mTLS with TPM bound private key](https://github.com/salrashid123/go_tpm_https_embed)
 
+- [c: TLS with TPM based private key](https://gist.github.com/salrashid123/db54e06f47ba7c6d801fe09f9f9c834a)
+
+- python [Python mTLS client/server with TPM based key](https://gist.github.com/salrashid123/4cb714d800c9e8777dfbcd93ff076100)
+
 For this we will be using a test ca authority
 
 first find a vm where you've [installed tpm2tss](https://github.com/salrashid123/tpm2#installing-tpm2_tools-golang)
@@ -224,3 +228,147 @@ FILE:index.html
 * [https://github.com/tpm2-software/tpm2-tss-engine](https://github.com/tpm2-software/tpm2-tss-engine)
 
 * [mTLS with TPM bound private key](https://github.com/salrashid123/go_tpm_https_embed)
+
+---
+
+
+## Python
+
+```bash
+apt-get update
+
+apt -y install   autoconf-archive   libcmocka0   libcmocka-dev   procps   iproute2   build-essential   git   pkg-config   gcc   libtool   automake   libssl-dev   uthash-dev   autoconf   doxygen  libcurl4-openssl-dev dbus-x11 libglib2.0-dev libjson-c-dev acl swtpm swtpm-tools python3-pip python3-requests python3-flask
+
+cd
+git clone https://github.com/tpm2-software/tpm2-tss.git
+  cd tpm2-tss
+  ./bootstrap
+  ./configure --with-udevrulesdir=/etc/udev/rules.d
+  make -j$(nproc)
+  make install
+  udevadm control --reload-rules && sudo udevadm trigger
+  ldconfig
+
+
+cd
+git clone https://github.com/tpm2-software/tpm2-tools.git
+  cd tpm2-tools
+  ./bootstrap
+  ./configure
+  make install
+
+cd
+git clone https://github.com/tpm2-software/tpm2-openssl.git
+cd tpm2-openssl
+  ./bootstrap
+  ./configure
+  make install
+
+
+
+mkdir /tmp/myvtpm
+swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --create-ek-cert
+swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear --log level=2
+
+export TPM2TOOLS_TCTI="swtpm:port=2321"
+export TPM2OPENSSL_TCTI="swtpm:port=2321"
+export TPM2TSSENGINE_TCTI="swtpm:port=2321"
+export OPENSSL_MODULES=/usr/lib/x86_64-linux-gnu/ossl-modules/ 
+export TSS2_LOG=esys+debug
+
+$ openssl version
+   OpenSSL 3.0.9 30 May 2023 (Library: OpenSSL 3.0.9 30 May 2023)
+
+
+git clone https://github.com/salrashid123/ca_scratchpad.git
+cd ca_scratchpad
+
+mkdir -p ca/root-ca/private ca/root-ca/db crl certs
+chmod 700 ca/root-ca/private
+cp /dev/null ca/root-ca/db/root-ca.db
+cp /dev/null ca/root-ca/db/root-ca.db.attr
+
+echo 01 > ca/root-ca/db/root-ca.crt.srl
+echo 01 > ca/root-ca/db/root-ca.crl.srl
+
+export SAN=single-root-ca
+
+openssl genpkey -algorithm rsa -pkeyopt rsa_keygen_bits:2048 \
+      -pkeyopt rsa_keygen_pubexp:65537 -out ca/root-ca/private/root-ca.key
+   
+openssl req -new  -config single-root-ca.conf  -key ca/root-ca/private/root-ca.key \
+   -out ca/root-ca.csr  
+
+openssl ca -selfsign     -config single-root-ca.conf  \
+   -in ca/root-ca.csr     -out ca/root-ca.crt  \
+   -extensions root_ca_ext
+
+
+### create a server cert
+export NAME=server
+export SAN="DNS:localhost"
+
+openssl genpkey -algorithm rsa -pkeyopt rsa_keygen_bits:2048 \
+      -pkeyopt rsa_keygen_pubexp:65537 -out certs/$NAME.key
+
+openssl req -new     -config server.conf \
+  -out certs/$NAME.csr  \
+  -key certs/$NAME.key  -reqexts server_reqext   \
+  -subj "/C=US/O=Google/OU=Enterprise/CN=server.domain.com" 
+
+openssl ca \
+    -config single-root-ca.conf \
+    -in certs/$NAME.csr \
+    -out certs/$NAME.crt  \
+    -extensions server_ext
+
+### create a client cert
+export NAME=tpmc
+export SAN="DNS:client.domain.com"
+
+openssl genpkey -provider tpm2 -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
+      -pkeyopt rsa_keygen_pubexp:65537 -out certs/$NAME.key
+
+openssl req -new  -provider tpm2 -provider default \
+      -config client.conf   -out certs/$NAME.csr \
+          -key certs/$NAME.key   -subj "/C=US/O=Google/OU=Enterprise/CN=client.domain.com"
+
+openssl ca \
+    -config single-root-ca.conf \
+    -in certs/$NAME.csr \
+    -out certs/$NAME.crt \
+    -policy extern_pol \
+    -extensions client_ext
+
+$ cat tpmc.key 
+-----BEGIN TSS2 PRIVATE KEY-----
+MIICEgYGZ4EFCgEDoAMBAQECBEAAAAEEggEYARYAAQALAAYAcgAAABAAEAgAAAEA
+AQEAyDaWiSc/cRZjXVuL8R3YzzysqhvcXSsabO2NQKR73EJ4NxKG1Q9QmOfnay+E
+p1Op2EIEdy3L2Ev43IC9cVwojPkp4UNTj0RPBEGfUoy4pCcxSqdRCTWD5jB5DUG8
+KMz6lkhdY39+DsXgieUkkVuWgouMAUEYND9ypHc9kb7N9R1L/TfYkUjohWPnew8w
+6WF0gQaZOiZUG+753biUx0xrXQi92fsMNlpcBo6+vWTZjtKzohRbFgBC6RL/yzcC
+CtcjZYfUp2XHLR7pGrP+lTwF6T30vpF2VJ4rUSd90f7M9oI+8YhCD3lB2RrRyTe4
+7UhVcYFS21OkhmQ3ibZEnOdi/wSB4ADeACAapjcmn7+dwAxM7z57LMl3/pAytfhe
+K7cLu0hhWlx1wwAQARrbrL3kKtkIy19XH1wYOS7ypZ66hqU0JkmonptTq0xelguy
+v3ak/SMfls2Vrrq6+20W0boQPdVAHl6KoUky4xwDA+fzSvW9tQurhZXkbe6M7yAF
+nUBdl+uwZR/e9E+6kbihjiaEvCWqs4YW5ygrigoHVqOA7aTKQ6/4JOgg1pcnt4pX
+YLju7KF9ggKtGUDiYqYtiTJ+Y3Xexhv1tv5Iyvw2dbb3An1T5pidlHghqIIQzR7T
+Yh9cYFRf
+-----END TSS2 PRIVATE KEY-----
+
+
+openssl rsa -provider tpm2  -provider default -in certs/tpmc.key --text
+
+
+python3 server.py
+
+
+export TPM2TOOLS_TCTI="swtpm:port=2321"
+export TPM2OPENSSL_TCTI="swtpm:port=2321"
+export TPM2TSSENGINE_TCTI="swtpm:port=2321"
+export OPENSSL_MODULES=/usr/lib/x86_64-linux-gnu/ossl-modules/ 
+export TSS2_LOG=esys+debug
+
+export OPENSSL_CONF=`pwd`/openssl.cnf
+python3 client.py
+```

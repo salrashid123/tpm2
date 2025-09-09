@@ -1,10 +1,12 @@
-## Using Policies to RSA Signatures and AES Encrypt/Decrypt
+## Using Policies to RSA Signatures and AES Encrypt/Decrypt RSA sign
 
 
 i'm using the swtpm here:
 
 ```bash
-rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm  &&    sudo swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --create-ek-cert &&  sudo swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear --log level=2
+rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm 
+swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --create-ek-cert
+swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear --log level=2
 
 export TPM2TOOLS_TCTI="swtpm:port=2321"
 tpm2_pcrextend 23:sha256=0x0000000000000000000000000000000000000000000000000000000000000000
@@ -245,33 +247,30 @@ policy signed for AES:
 echo "foo" > secret.dat
 openssl rand  -out iv.bin 16
 openssl genrsa -out private.pem 2048
+
 openssl rsa -in private.pem -outform PEM -pubout -out public.pem
 tpm2_loadexternal -C o -G rsa -u public.pem -c signing_key.ctx
-
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
 
 tpm2_startauthsession -S session.ctx
 tpm2_policysigned -S session.ctx -f rsassa -g sha256 -c signing_key.ctx -L policy.dat
 tpm2_flushcontext session.ctx
 tpm2_createprimary -C o -g sha256 -G rsa -c primary.ctx -Q
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
 tpm2_create -g sha256 -G aes -u key.pub -r key.priv -C primary.ctx -L policy.dat
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
 tpm2_load -C primary.ctx -u key.pub -r key.priv -n key.name -c aes.ctx
 
+tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
 tpm2_startauthsession -S session.ctx --policy-session
-tpm2_policysigned -S session.ctx -c signing_key.ctx -x --raw-data to_sign.bin -x -t 3
+tpm2_policysigned -S session.ctx -c signing_key.ctx -x --raw-data to_sign.bin -x -t 30
+
+
 openssl dgst -sha256 -sign private.pem -out signature.dat to_sign.bin
-tpm2_policysigned -S session.ctx -g sha256 -s signature.dat -f rsassa -c signing_key.ctx -x -t 3
+tpm2_policysigned -S session.ctx -g sha256 -s signature.dat -f rsassa -c signing_key.ctx -x -t 30
 
 tpm2_encryptdecrypt -Q --iv iv.bin  -c aes.ctx -o cipher.out -p"session:session.ctx"  secret.dat
 tpm2_flushcontext session.ctx
-
-
-tpm2_startauthsession -S session.ctx --policy-session
-tpm2_policysigned -S session.ctx -c signing_key.ctx -x --raw-data to_sign.bin -x -t 3
-openssl dgst -sha256 -sign private.pem -out signature.dat to_sign.bin
-tpm2_policysigned -S session.ctx -g sha256 -s signature.dat -f rsassa -c signing_key.ctx -x -t 3
-tpm2_encryptdecrypt  --iv iv.bin  -c aes.ctx -d -o plain.out cipher.out  -p "session:session.ctx"
-tpm2_flushcontext session.ctx
-cat plain.out
 ```
 
 - policy signed for AES with cphash and manual signature
@@ -280,15 +279,19 @@ cat plain.out
 ```bash
 export TPM2TOOLS_TCTI="swtpm:port=2321"
 
+
+openssl rand  -out iv.bin 16
+openssl genrsa -out private.pem 2048
+
+echo "foooo" > secret.dat
 tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
-echo "foo" > secret.dat
 openssl rand  -out iv.bin 16
 openssl genrsa -out private.pem 2048
 openssl rsa -in private.pem -outform PEM -pubout -out public.pem
 tpm2_loadexternal -C o -G rsa -u public.pem -c signing_key.ctx
 
 tpm2_startauthsession -S session.ctx
-tpm2_policysigned -S session.ctx -f rsassa -g sha256 -c signing_key.ctx -L policy.dat  -q 98ba3a
+tpm2_policysigned -S session.ctx -f rsassa -g sha256 -c signing_key.ctx -L policy.dat -x -t 30 -q 666f6f626172
 tpm2_flushcontext session.ctx
 tpm2_createprimary -C o -g sha256 -G rsa -c primary.ctx -Q
 tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
@@ -301,41 +304,49 @@ tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
 tpm2_startauthsession -S session.ctx --policy-session
 tpm2_encryptdecrypt  --iv iv.bin  -c aes.ctx  --cphash=cphash.bin   secret.dat
 
-tpm2_policysigned -S session.ctx -c signing_key.ctx --cphash=cphash.bin --raw-data to_sign.bin -x -t 30 -q 98ba3a
+tpm2_policysigned -S session.ctx -c signing_key.ctx --cphash-input=cphash.bin --raw-data to_sign.bin -x -t 30 -q 666f6f626172
+
+openssl dgst -sha256 -sign private.pem -out signature.dat to_sign.bin
+
+tpm2_policysigned -S session.ctx -g sha256 -s signature.dat --cphash=cphash.bin -f rsassa -c signing_key.ctx -x -t 30 -q 666f6f626172
+tpm2_flushcontext -t
+tpm2_encryptdecrypt -Q --iv iv.bin  -c aes.ctx -o cipher.out -p"session:session.ctx"  secret.dat
+tpm2_flushcontext session.ctx
+
+$  xxd -p cphash.bin 
+002080b86f10ef3ccda6770abe4ba236610bed580d4d3f1e6d675553837a9dfe4789
+
 
 # $ xxd -p -c 100 cphash.bin 
-# 002090c4f6cd86c4f793dff3709fcd2542baa2b7c90d42de12c3666fc298cea8830d
+# 002080b86f10ef3ccda6770abe4ba236610bed580d4d3f1e6d675553837a9dfe4789
 #    .> remove the 0020 prefix for the actual hash
 # $ xxd -p -c 100 cphash.bin 
-#    0020 d27d7d6d4f84d65d3477322053424d3dfda16105c9c146ccafb906b89d60b44e
+#    0020 80b86f10ef3ccda6770abe4ba236610bed580d4d3f1e6d675553837a9dfe4789
 
 ## so the segmented signature is "to_sign.bin":
 # xxd -p -c 100 to_sign.bin
-# a0914fa8287e4decd2299f77bb3ad986d957368e4c595a205d68d8b744a890fb 0000001e d27d7d6d4f84d65d3477322053424d3dfda16105c9c146ccafb906b89d60b44e 98ba3a
+# 7f43a8f52c131ad95896cbda9d726c5cb038192cbd2479ef734ad8ce3c0d2f17 0000001e 80b86f10ef3ccda6770abe4ba236610bed580d4d3f1e6d675553837a9dfe4789 666f6f626172
 
 ### to generate it manually:
 ### note tpm2_startauthsession does not return the nonce used after commit https://github.com/tpm2-software/tpm2-tools/commit/bbe177f7248e988b6d155c01bc08dcba8aaead3d
 ###  which means i don't know how to get this bit; i do know go-tpm allows for it https://pkg.go.dev/github.com/google/go-tpm/tpm2#StartAuthSessionResponse
 
-# export NONCE="a0914fa8287e4decd2299f77bb3ad986d957368e4c595a205d68d8b744a890fb"
+# export NONCE="7f43a8f52c131ad95896cbda9d726c5cb038192cbd2479ef734ad8ce3c0d2f17"
 # export EXPIRYTIME="0000001e"  # 30
-# export CPHASH="d27d7d6d4f84d65d3477322053424d3dfda16105c9c146ccafb906b89d60b44e"
-# export QUALIFICATION="98ba3a"
+# export CPHASH="80b86f10ef3ccda6770abe4ba236610bed580d4d3f1e6d675553837a9dfe4789"
+# export QUALIFICATION="666f6f626172"
 
 # echo -n $NONCE$EXPIRYTIME$CPHASH$QUALIFICATION | xxd -r -p | openssl dgst -sha256 -sign private.pem -out signature.dat
 
+### now compare the bytes to sign we generated manually vs with tpm2_tools
+
 # $ echo -n $NONCE$EXPIRYTIME$CPHASH$QUALIFICATION | xxd -r -p |  sha256sum
-# 39f05dc65a2dbf647d77047dba302586c569ef60bdb9b02f30f7aec986665a43  -
+# f6984108224e1afe974984748e95cd0ba85484970f06988cc0518388c4e54a34  -
+
 # $ sha256sum to_sign.bin 
-# 39f05dc65a2dbf647d77047dba302586c569ef60bdb9b02f30f7aec986665a43  to_sign.bin
+# f6984108224e1afe974984748e95cd0ba85484970f06988cc0518388c4e54a34  to_sign.bin
 
-#tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l
-openssl dgst -sha256 -sign private.pem -out signature.dat to_sign.bin
 
-tpm2_policysigned -S session.ctx -g sha256 -s signature.dat --cphash=cphash.bin -f rsassa -c signing_key.ctx -x -t 30 -q 98ba3a
-tpm2_flushcontext -t
-tpm2_encryptdecrypt -Q --iv iv.bin  -c aes.ctx -o cipher.out -p"session:session.ctx"  secret.dat
-tpm2_flushcontext session.ctx
 ```
 
 Signed policy data

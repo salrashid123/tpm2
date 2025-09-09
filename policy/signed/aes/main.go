@@ -11,9 +11,11 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net"
+	"os"
 	"slices"
 
 	"github.com/google/go-tpm-tools/simulator"
@@ -21,6 +23,51 @@ import (
 	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/google/go-tpm/tpmutil"
 )
+
+/*
+go snippet which uses policy signed and AES
+
+rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm
+swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --create-ek-cert
+swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear --log level=2
+
+export TPM2TOOLS_TCTI="swtpm:port=2321"
+
+openssl genrsa -out private_key.pem 2048
+
+What the following does is:
+
+1. loads an external signing private key ("private_key.pem") from disk into a TPM
+2. print the public/private key
+3. create a PolicySigned policy where the signing authority is the private_key.pem and
+    which stipulates a "policyRef" and expiration value of 30seconds to be part of the signature
+4. create an aes key on the tpm with RSASRKTemplate as the parent and the policy signed defined previously
+5. create a policy session
+6. proivde the NonceTPM derived for that session to some signer
+
+Suppose the signer only wants to authorize encryption of string: data := []byte("foooo")
+   (yes, i know, its a contrived example)
+
+7. the signer will create a CommandParameter hash value which is just the hash of all the command parameters which includes the string to sign,
+    the name of the new rsa key
+
+	the values of the command parameter are hashed to create the cpHashA value
+
+8. the signer will take the noneTPM from step 6, the policyRefstring, the cpHashA and the expiration value to create a hash
+
+              aHash ≔ sha256(nonceTPM || expiration || cpHashA || policyRef)
+
+9. the signer will sign the aHash using key in step 1
+
+10. the signer will give the signed aHash and aHash to the system with the TPM
+
+11. The TPM will use the _same policy_ as in step 5 (since it includes the nonceTPM), then create a PolicySigned with
+     the policyRef, expiration, CpHash and the signature from step 9
+
+12. The tpm will use that session to encrypt some data
+
+
+*/
 
 const ()
 
@@ -56,13 +103,33 @@ func main() {
 
 	rwr := transport.FromReadWriter(rwc)
 
-	bitSize := 2048
+	// bitSize := 2048
 
-	// Generate RSA key.
-	key, err := rsa.GenerateKey(rand.Reader, bitSize)
+	// // Generate RSA key.
+	// key, err := rsa.GenerateKey(rand.Reader, bitSize)
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	privateKeyPEM, err := os.ReadFile("private.pem")
 	if err != nil {
-		panic(err)
+		fmt.Println("Error reading private key file:", err)
+		return
 	}
+
+	privateKeyBlock, _ := pem.Decode(privateKeyPEM)
+	if privateKeyBlock == nil {
+		fmt.Println("Failed to decode PEM block")
+		return
+	}
+
+	rkey, err := x509.ParsePKCS8PrivateKey(privateKeyBlock.Bytes) // Or x509.ParsePKCS8PrivateKey
+	if err != nil {
+		fmt.Println("Error parsing private key:", err)
+		return
+	}
+
+	key := rkey.(*rsa.PrivateKey)
 
 	// Extract public component.
 	pub := key.Public()
@@ -139,6 +206,12 @@ func main() {
 
 	log.Printf("loaded external %s\n", hex.EncodeToString(l.Name.Buffer))
 
+	n, err := tpm2.ObjectName(&rsaTemplate)
+	if err != nil {
+		log.Fatalf("Failed to get name key: %v", err)
+	}
+	log.Printf("loaded external %s\n", hex.EncodeToString(n.Buffer))
+
 	// first create primary
 	log.Printf("======= createPrimary ========")
 
@@ -176,13 +249,16 @@ func main() {
 
 	policyRefString := "foobar"
 
-	expirationTime := 10
+	expirationTime := 30
+
+	// ***********
+
+	// **************
 
 	_, err = tpm2.PolicySigned{
 		PolicySession: sess.Handle(),
 		AuthObject:    l.ObjectHandle,
-		NonceTPM:      sess.NonceTPM(),
-		// Expiration:    expirationTime,
+		Expiration:    int32(expirationTime),
 		PolicyRef: tpm2.TPM2BNonce{
 			Buffer: []byte(policyRefString),
 		},
@@ -278,6 +354,18 @@ func main() {
 		_, err = flushContextCmd.Execute(rwr)
 	}()
 
+	// start a session
+	sess2, cleanup2, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{tpm2.Auth([]byte(nil))}...)
+	if err != nil {
+		log.Fatalf("setting up policy session: %v", err)
+	}
+	defer cleanup2()
+
+	// ************** recreate policysigned
+	// https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-3-Commands-01.38.pdf
+	// TPM2.0 spec, Revision 1.38, Part 3 nonce must be present if expiration is non-zero.
+	// aHash ≔ HauthAlg(nonceTPM || expiration || cpHashA || policyRef)
+
 	// now use the key to encrypt
 	data := []byte("foooo")
 
@@ -287,21 +375,40 @@ func main() {
 		log.Fatalf("can't read rand %v", err)
 	}
 
-	// start a session
-	sess2, cleanup2, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{tpm2.Auth([]byte(nil))}...)
-	if err != nil {
-		log.Fatalf("setting up policy session: %v", err)
+	// cpHashA: digest of the command parameters for the command being
+	// approved using the hash algorithm of the policy session. Set to
+	// an EmptyAuth if the authorization is not limited to a specific
+	// command.
+
+	f := tpm2.EncryptDecrypt2{
+		KeyHandle: tpm2.AuthHandle{
+			Name: aesKey.Name,
+		},
+		Message: tpm2.TPM2BMaxBuffer{
+			Buffer: data,
+		},
+		Decrypt: false,
+		Mode:    tpm2.TPMAlgCFB,
+		IV: tpm2.TPM2BIV{
+			Buffer: iv,
+		},
 	}
-	defer cleanup2()
 
-	// ************** recreate policysigned
+	d, err := tpm2.CPHash(tpm2.TPMAlgSHA256, f)
+	if err != nil {
+		panic(err)
+	}
 
-	// TPM2.0 spec, Revision 1.38, Part 3 nonce must be present if expiration is non-zero.
-	// aHash ≔ HauthAlg(nonceTPM || expiration || cpHashA || policyRef)
+	dgst := d.Buffer
+	fmt.Printf("cphash: %s\n", hex.EncodeToString(dgst))
+
+	//**
+
 	expBytes := make([]byte, 4)
 	binary.BigEndian.PutUint32(expBytes, uint32(expirationTime))
 	toDigest := append(sess2.NonceTPM().Buffer, expBytes...)
-	cpHash := []byte{}
+
+	cpHash := dgst //[]byte{}
 	toDigest = append(toDigest, cpHash...)
 	policyRef := []byte(policyRefString)
 	toDigest = append(toDigest, policyRef...)
@@ -317,7 +424,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("error executing sign: %v", err)
 	}
-	log.Printf("Sig %s\n", hex.EncodeToString(sig))
+	log.Printf("Signature %s\n", hex.EncodeToString(sig))
 
 	_, err = tpm2.PolicySigned{
 		PolicySession: sess2.Handle(),
@@ -327,6 +434,7 @@ func main() {
 		PolicyRef: tpm2.TPM2BNonce{
 			Buffer: []byte(policyRefString),
 		},
+		CPHashA: tpm2.TPM2BDigest{Buffer: cpHash},
 		Auth: tpm2.TPMTSignature{
 			SigAlg: tpm2.TPMAlgRSASSA,
 			Signature: tpm2.NewTPMUSignature(
@@ -350,6 +458,7 @@ func main() {
 		Name:   aesKey.Name,
 		Auth:   sess2,
 	}
+
 	encrypted, err := encryptDecryptSymmetric(rwr, keyAuth2, iv, data, false)
 
 	if err != nil {
@@ -371,13 +480,14 @@ func encryptDecryptSymmetric(rwr transport.TPM, keyAuth tpm2.AuthHandle, iv, dat
 		} else {
 			block, rest = rest, nil
 		}
+
 		r, err := tpm2.EncryptDecrypt2{
 			KeyHandle: keyAuth,
 			Message: tpm2.TPM2BMaxBuffer{
 				Buffer: block,
 			},
-			Mode:    tpm2.TPMAlgCFB,
 			Decrypt: decrypt,
+			Mode:    tpm2.TPMAlgCFB,
 			IV: tpm2.TPM2BIV{
 				Buffer: iv,
 			},
@@ -390,29 +500,4 @@ func encryptDecryptSymmetric(rwr transport.TPM, keyAuth tpm2.AuthHandle, iv, dat
 		out = append(out, block...)
 	}
 	return out, nil
-}
-
-func getExpectedPCRDigest(thetpm transport.TPM, selection tpm2.TPMLPCRSelection, hashAlg tpm2.TPMAlgID) ([]byte, error) {
-	pcrRead := tpm2.PCRRead{
-		PCRSelectionIn: selection,
-	}
-
-	pcrReadRsp, err := pcrRead.Execute(thetpm)
-	if err != nil {
-		return nil, err
-	}
-
-	var expectedVal []byte
-	for _, digest := range pcrReadRsp.PCRValues.Digests {
-		expectedVal = append(expectedVal, digest.Buffer...)
-	}
-
-	cryptoHashAlg, err := hashAlg.Hash()
-	if err != nil {
-		return nil, err
-	}
-
-	hash := cryptoHashAlg.New()
-	hash.Write(expectedVal)
-	return hash.Sum(nil), nil
 }
