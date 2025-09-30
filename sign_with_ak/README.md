@@ -18,6 +18,35 @@ bR31x3/kp8sStqLEbWgstpZKEq20AJux/NFdwqXtSRmwbiVDqwIsn5qrmECNW0OZ
 +wIDAQAB
 -----END PUBLIC KEY-----
 
+$ tpm2_readpublic -c ak.ctx -f PEM
+name: 000ba06161c58fb6af4937e34c2eb0a9909021999ce8a5391600dad54ee2603a7a65
+qualified name: 000b003d4b17410eb77f691f5bf2e23f1c00454193467e59a69a8ba3611154f805aa
+name-alg:
+  value: sha256
+  raw: 0xb
+attributes:
+  value: fixedtpm|fixedparent|sensitivedataorigin|userwithauth|restricted|sign
+  raw: 0x50072
+type:
+  value: rsa
+  raw: 0x1
+exponent: 65537
+bits: 2048
+scheme:
+  value: rsassa
+  raw: 0x14
+scheme-halg:
+  value: sha256
+  raw: 0xb
+sym-alg:
+  value: null
+  raw: 0x10
+sym-mode:
+  value: (null)
+  raw: 0x0
+sym-keybits: 0
+rsa: c8a46202e5132ba7ab832a8ce1ce3345e3deb74b7e5a53271914
+
 
 echo "meet me at.." > message.txt
 

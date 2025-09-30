@@ -22,7 +22,7 @@ import (
 const ()
 
 var (
-	tpmPath = flag.String("tpm-path", "/dev/tpmrm0", "Path to the TPM device (character device or a Unix socket).")
+	tpmPath = flag.String("tpm-path", "127.0.0.1:2321", "Path to the TPM device (character device or a Unix socket).")
 	secret  = flag.String("secret", "meet me at...", "secret")
 )
 
@@ -141,7 +141,6 @@ func main() {
 			UserWithAuth:        true,
 			Restricted:          true,
 			SignEncrypt:         true,
-			NoDA:                true,
 		},
 		Parameters: tpm2.NewTPMUPublicParms(
 			tpm2.TPMAlgRSA,
