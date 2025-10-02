@@ -12,15 +12,17 @@ Also shown equivalent use of `go-tpm` library set.
 
 ### Key transfer
 
-* [TPM backed crypto/rand Reader](https://github.com/salrashid123/tpmrand)
-* [golang-jwt for Trusted Platform Module (TPM)](https://github.com/salrashid123/golang-jwt-tpm)
-* [crypto.Signer, crypto.MessageSigner implementations for Trusted Platform Modules](https://github.com/salrashid123/tpmsigner)
 * [tpmcopy: Transfer RSA|ECC|AES|HMAC key to a remote Trusted Platform Module (TPM)](https://github.com/salrashid123/tpmcopy)
 * [Go-TPM-Wrapping - Go library for encrypting data using Trusted Platform Module (TPM)](https://github.com/salrashid123/go-tpm-wrapping)
 * [Transferring RSA and Symmetric keys with GCP vTPMs](https://github.com/salrashid123/gcp_tpm_sealed_keys)
+
+### go library
+
+* [TPM backed crypto/rand Reader](https://github.com/salrashid123/tpmrand)
+* [golang-jwt for Trusted Platform Module (TPM)](https://github.com/salrashid123/golang-jwt-tpm)
+* [crypto.Signer, crypto.MessageSigner implementations for Trusted Platform Modules](https://github.com/salrashid123/tpmsigner)
 * [tpm2genkey go utility](https://github.com/salrashid123/tpm2genkey)
 * [OCICrypt provider for Trusted Platform Modules (TPM)](https://github.com/salrashid123/ocicrypt-tpm-keyprovider)
-
 
 ### Cloud Authentication
 
