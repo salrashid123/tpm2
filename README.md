@@ -186,8 +186,8 @@ Just note that AFAIK, the swtpm does *not* have a resrouce manager so you'll hav
 
 ```bash
 rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm  && \
-   sudo swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --create-ek-cert && \
-   sudo swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear
+   swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --create-ek-cert && \
+   swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear
 
 export TPM2TOOLS_TCTI="swtpm:port=2321"
 ```
@@ -197,8 +197,8 @@ export TPM2TOOLS_TCTI="swtpm:port=2321"
 
 ```bash
 rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm  && \
-   sudo swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --create-ek-cert && \
-   sudo swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear
+   swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --create-ek-cert && \
+   swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear
 
 sudo socat pty,link=/tmp/vtpm,raw,echo=0 tcp:localhost:2321
 sudo chmod go+rw /tmp/vtpm
