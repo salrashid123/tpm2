@@ -6,26 +6,21 @@ The primary focus is how use `tpm2_tools` to perform common tasks that i've come
 
 Also shown equivalent use of `go-tpm` library set.
 
-for the `go-tpm` examples, i am slowly migrating them over to the [go-tpm direct](https://github.com/google/go-tpm/releases/tag/v0.9.0) API.  If you would rather use the legacy version, just check the commit history to maybe a snapshot at July 2024.
-
 ---
 
 ### Related items
 
 ### Key transfer
 
+* [TPM backed crypto/rand Reader](https://github.com/salrashid123/tpmrand)
+* [golang-jwt for Trusted Platform Module (TPM)](https://github.com/salrashid123/golang-jwt-tpm)
+* [crypto.Signer, crypto.MessageSigner implementations for Trusted Platform Modules](https://github.com/salrashid123/tpmsigner)
 * [tpmcopy: Transfer RSA|ECC|AES|HMAC key to a remote Trusted Platform Module (TPM)](https://github.com/salrashid123/tpmcopy)
 * [Go-TPM-Wrapping - Go library for encrypting data using Trusted Platform Module (TPM)](https://github.com/salrashid123/go-tpm-wrapping)
-* [TINK Go TPM extension](https://github.com/salrashid123/tink-go-tpm/)
 * [Transferring RSA and Symmetric keys with GCP vTPMs](https://github.com/salrashid123/gcp_tpm_sealed_keys)
 * [tpm2genkey go utility](https://github.com/salrashid123/tpm2genkey)
 * [OCICrypt provider for Trusted Platform Modules (TPM)](https://github.com/salrashid123/ocicrypt-tpm-keyprovider)
 
-### go library
-
-* [TPM backed crypto/rand Reader](https://github.com/salrashid123/tpmrand)
-* [crypto.Signer, implementations for Google Cloud KMS and Trusted Platform Modules](https://github.com/salrashid123/signer)
-* [golang-jwt for Trusted Platform Module (TPM)](https://github.com/salrashid123/golang-jwt-tpm)
 
 ### Cloud Authentication
 
@@ -91,6 +86,8 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 - `chained_keys`: Encrypt/Decrypt using parent->child->child keys
 
 - `gcp_ek_ak`: read gcp ek keys from NV using go-tpm-tools and gcloud API
+  
+- `ek_cert_key` read _generic_ the ek cert and key from NV
 
 - `ek_import_blob`: Seal data using a _real_ tpm's ekcert signed by Optiga
 
