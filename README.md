@@ -91,6 +91,8 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
   
 - `ek_cert_key` read _generic_ the ek cert and key from NV
 
+- `go_ek_csr`: issue CSR from EKRSA (signing)
+
 - `ek_import_blob`: Seal data using a _real_ tpm's ekcert signed by Optiga
 
 - `tpm_quote_verify`: Generate TPM Quote blob with PCR23 value (`tpm2_createak`, `tpm2_quote`, `tpm2_checkquote`)
