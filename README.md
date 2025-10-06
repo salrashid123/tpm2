@@ -91,6 +91,11 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
   
 - `ek_cert_key` read _generic_ the ek cert and key from NV
 
+- `ek_ak`: generate ek and ak
+
+- `tpm2_tools_load_ctx`: convert saved context files between `tpm2_tools<>go-tpm` (experimental)
+
+
 - `go_ek_csr`: issue CSR from EKRSA (signing)
 
 - `ek_import_blob`: Seal data using a _real_ tpm's ekcert signed by Optiga
@@ -114,6 +119,8 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 - `keyfile-go-tpm-tools`: use go-tpm's direct api with `go-tpm-keyfiles` and `go-tpm-tools.client.Key` 
 
 - `simulator_swtpm_tcpdump`: run a software tpm locally use tcpdump to decode traffic with wireshark
+
+- `tpm2_tools_load_ctx`: load a key context saved by tpm2_tools using go-tpm
 
 - `tpm_encrypted_session`: demonstrate session encryption to protect cpu->tpm bus interface
 
@@ -392,18 +399,35 @@ If you have openssl and want to issue a cert on the TPM,
 using openssl3 [tpm2-openssl](https://github.com/tpm2-software/tpm2-openssl) installed:
 
 ```bash
+git clone https://github.com/salrashid123/ca_scratchpad.git
+cd ca_scratchpad/
+mkdir -p ca/root-ca/private ca/root-ca/db crl certs
+chmod 700 ca/root-ca/private
+cp /dev/null ca/root-ca/db/root-ca.db
+cp /dev/null ca/root-ca/db/root-ca.db.attr
 
-openssl version
-   OpenSSL 3.0.9 30 May 2023 (Library: OpenSSL 3.0.9 30 May 2023)
+echo 01 > ca/root-ca/db/root-ca.crt.srl
+echo 01 > ca/root-ca/db/root-ca.crl.srl
+
+export SAN=single-root-ca
+
+openssl genpkey -algorithm rsa -pkeyopt rsa_keygen_bits:2048 \
+      -pkeyopt rsa_keygen_pubexp:65537 -out ca/root-ca/private/root-ca.key
+
+openssl req -new  -config single-root-ca.conf  -key ca/root-ca/private/root-ca.key \
+   -out ca/root-ca.csr  
+
+openssl ca -selfsign     -config single-root-ca.conf  \
+   -in ca/root-ca.csr     -out ca/root-ca.crt  \
+   -extensions root_ca_ext
 
 export NAME=tpms
-export TSS2_LOG=esys+debug
-
+export SAN="DNS:server.domain.com"
 openssl genpkey -provider tpm2 -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
       -pkeyopt rsa_keygen_pubexp:65537 -out certs/$NAME.key
 
 openssl req -new  -provider tpm2 -provider default \
-      -config server.conf   -out certs/$NAME.csr \
+      -config single-root-ca.conf   -out certs/$NAME.csr \
           -key certs/$NAME.key   -subj "/C=US/O=Google/OU=Enterprise/CN=server.domain.com"
 
 openssl ca \
@@ -413,49 +437,3 @@ openssl ca \
     -extensions server_ext
 ```
 
-### Appendix
-
-
-#### Envelope encryption using openssl
-
-```bash
-KEK: Asymmetric
-DEK: Symmetric
-    openssl genrsa -out KEK.pem 2048
-    openssl rsa -in KEK.pem -outform PEM -pubout -out KEK_PUBLIC.pem
-    echo "thepassword" > secrets.txt
-
-    openssl rand 32 > DEK.key
-    openssl enc -aes-256-cbc -salt -pbkdf2 -in secrets.txt -out secrets.txt.enc -pass file:./DEK.key
-
-    openssl rsautl -encrypt -inkey KEK_PUBLIC.pem -pubin -in DEK.key -out DEK.key.enc
-
-    openssl rsautl -decrypt -inkey KEK.pem -in DEK.key.enc -out DEK.key.ptext
-    openssl enc -d -aes-256-cbc -pbkdf2 -in secrets.txt.enc -out secrets.txt.ptext  -pass file:./DEK.key.ptext
-    more secrets.txt.ptext
-
-KEK: Symmetric
-DEK: Symmetric
-    openssl rand 32 > kek.key
-    openssl rand 32 > dek.key
-
-    openssl enc -pbkdf2 -in secrets.txt -out secrets.txt.enc -aes-256-cbc -pass file:./dek.key
-    openssl enc -pbkdf2 -in dek.key -out dek.key.enc -aes-256-cbc --pass file:./kek.key
-
-    openssl enc -d -aes-256-cbc -pbkdf2 -in dek.key.enc -out dek.key.ptext  -pass file:./kek.key
-    openssl enc -d -aes-256-cbc -pbkdf2 -in secrets.txt.enc -out secrets.txt.ptext  -pass file:./dek.key.ptext
-
-```
-
-#### References/Links
-
-- [The Trusted Platform Module Key Hierarchy](https://ericchiang.github.io/post/tpm-keys/)
-- [googe cloud credentials TPMTokenSource](https://github.com/salrashid123/oauth2#tpmtokensource)
-- [TPM2-TSS-Engine hello world and Google Cloud Authentication](https://github.com/salrashid123/tpm2_evp_sign_decrypt)
-
-- [https://www.scribd.com/document/398036850/2015-Book-APracticalGuideToTPM20](https://www.scribd.com/document/398036850/2015-Book-APracticalGuideToTPM20)
-- [https://google.github.io/tpm-js](https://google.github.io/tpm-js)
-- [https://www.tonytruong.net/how-to-use-the-tpm-to-secure-your-iot-device-data/](https://www.tonytruong.net/how-to-use-the-tpm-to-secure-your-iot-device-data/)
-- [https://github.com/tpm2-software/tpm2-tools/wiki/Creating-Objects](https://github.com/tpm2-software/tpm2-tools/wiki/Creating-Objects)
-- [https://dguerriblog.wordpress.com/2016/03/03/tpm2-0-and-openssl-on-linux-2/](https://dguerriblog.wordpress.com/2016/03/03/tpm2-0-and-openssl-on-linux-2/)
-- [https://courses.cs.vt.edu/cs5204/fall10-kafura-BB/Papers/TPM/Intro-TPM-2.pdf](https://courses.cs.vt.edu/cs5204/fall10-kafura-BB/Papers/TPM/Intro-TPM-2.pdf)
