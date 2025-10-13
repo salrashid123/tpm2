@@ -9,44 +9,29 @@ import (
 	"net"
 	"slices"
 
-	"github.com/google/go-tpm-tools/simulator"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/google/go-tpm/tpmutil"
 )
 
-// TPM2_EK_NV_INDEX=0x1c10000
-// tpm2_nvreadpublic | sed -n -e "/""$TPM2_EK_NV_INDEX""/,\$p" | sed -e '/^[ \r\n\t]*$/,$d' | grep "size" | sed 's/.*size.*://' | sed -e 's/^[[:space:]]*//' | sed -e 's/[[:space:]]$//'
-// 1516
-// tpm2_nvread -s 1516  -C o $TPM2_EK_NV_INDEX |  openssl x509 --inform DER -text -noout  -in -
+/*
+rm -rf myvtpm && mkdir myvtpm  && \
+   swtpm_setup --tpmstate myvtpm --tpm2 --create-ek-cert &&  \
+   swtpm socket --tpmstate dir=myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear --log level=2
+
+export TPM2TOOLS_TCTI="swtpm:port=2321"
+
+*/
 
 const (
 	tpmDevice     = "/dev/tpm0"
 	emptyPassword = ""
 )
 
-// https://github.com/google/go-tpm/blob/364d5f2f78b95ba23e321373466a4d881181b85d/legacy/tpm2/tpm2.go#L1429
-
-// github.com/google/go-tpm-tools@v0.4.4/client/handles.go
-// [go-tpm-tools/client](https://pkg.go.dev/github.com/google/go-tpm-tools/client#pkg-constants)
-
-// GCE Attestation Key NV Indices
-const (
-	// RSA 2048 AK.
-	GceAKCertNVIndexRSA     uint32 = 0x01c10000
-	GceAKTemplateNVIndexRSA uint32 = 0x01c10001
-	// ECC P256 AK.
-	GceAKCertNVIndexECC     uint32 = 0x01c10002
-	GceAKTemplateNVIndexECC uint32 = 0x01c10003
-
-	// RSA 2048 EK Cert.
-	EKCertNVIndexRSA uint32 = 0x01c00002
-	// ECC P256 EK Cert.
-	EKCertNVIndexECC uint32 = 0x01c0000a
-)
+const ()
 
 var (
-	tpmPath = flag.String("tpm-path", "/dev/tpmrm0", "Path to the TPM device (character device or a Unix socket).")
+	tpmPath = flag.String("tpm-path", "127.0.0.1:2321", "Path to the TPM device (character device or a Unix socket).")
 	nv      = flag.Uint("nv", 0x1500000, "nv to use") //tpm2_nvundefine 0x1500000
 )
 
@@ -55,8 +40,6 @@ var TPMDEVICES = []string{"/dev/tpm0", "/dev/tpmrm0"}
 func OpenTPM(path string) (io.ReadWriteCloser, error) {
 	if slices.Contains(TPMDEVICES, path) {
 		return tpmutil.OpenTPM(path)
-	} else if path == "simulator" {
-		return simulator.GetWithFixedSeedInsecure(1073741825)
 	} else {
 		return net.Dial("tcp", path)
 	}
@@ -89,6 +72,24 @@ func main() {
 	// TPM2_PT_NV_INDEX_MAX:
 	//   raw: 0x800  <<<<< 2048
 
+	getidxCmd := tpm2.GetCapability{
+		Capability:    tpm2.TPMCapTPMProperties,
+		Property:      uint32(tpm2.TPMPTNVIndexMax),
+		PropertyCount: 1,
+	}
+	getidxRsp, err := getidxCmd.Execute(rwr)
+	if err != nil {
+		log.Fatalf("errpr Calling GetCapability: %v", err)
+	}
+
+	tpidx, err := getidxRsp.CapabilityData.Data.TPMProperties()
+	if err != nil {
+		log.Fatalf("error Calling TPMProperties: %v", err)
+	}
+
+	idxSize := int(tpidx.TPMProperty[0].Value)
+	log.Printf("TPM  TPMPTNVIndexMax %d", idxSize)
+
 	getCmd := tpm2.GetCapability{
 		Capability:    tpm2.TPMCapTPMProperties,
 		Property:      uint32(tpm2.TPMPTNVBufferMax),
@@ -105,14 +106,14 @@ func main() {
 	}
 
 	blockSize := int(tp.TPMProperty[0].Value)
-	log.Printf("TPM Max NV buffer %d", blockSize)
+	log.Printf("TPM TPMPTNVBufferMax %d", blockSize)
 
 	// *****************
 
 	log.Printf("     Load SigningKey and Cert ")
 	// read direct from nv template
 
-	token := make([]byte, 2*blockSize) // can't be larger than TPM2_PT_NV_INDEX_MAX
+	token := make([]byte, idxSize) // can't be larger than TPM2_PT_NV_INDEX_MAX
 	rand.Read(token)
 	log.Println(base64.StdEncoding.EncodeToString(token))
 	/// write
@@ -134,7 +135,7 @@ func main() {
 					NT:         tpm2.TPMNTOrdinary,
 					NoDA:       true,
 				},
-				DataSize: uint16(2 * blockSize),
+				DataSize: uint16(idxSize),
 			}),
 	}
 
