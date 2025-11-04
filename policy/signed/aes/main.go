@@ -160,7 +160,7 @@ func main() {
 			FixedTPM:            false,
 			FixedParent:         false,
 			SensitiveDataOrigin: false,
-			UserWithAuth:        true,
+			UserWithAuth:        false,
 			SignEncrypt:         true,
 			Decrypt:             true,
 		},

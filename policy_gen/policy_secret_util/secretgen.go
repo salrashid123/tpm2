@@ -119,7 +119,7 @@ func main() {
 		ObjectAttributes: tpm2.TPMAObject{
 			FixedTPM:            true,
 			FixedParent:         true,
-			UserWithAuth:        true,
+			UserWithAuth:        false,
 			SensitiveDataOrigin: true,
 			Decrypt:             true,
 			SignEncrypt:         true,

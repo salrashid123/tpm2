@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"flag"
 	"io"
 	"log"
@@ -118,7 +119,7 @@ func main() {
 		ObjectAttributes: tpm2.TPMAObject{
 			FixedTPM:     true,
 			FixedParent:  true,
-			UserWithAuth: true,
+			UserWithAuth: true, // toggle
 		},
 	}
 
@@ -142,12 +143,6 @@ func main() {
 		log.Fatalf("can't create object TPM  %v", err)
 	}
 
-	///////
-	// optionally save and load the enclosing pub/private or use go-keyfile
-	//cCreate.OutPrivate
-	//cCreate.OutPublic
-	///////
-
 	aKey, err := tpm2.Load{
 		ParentHandle: tpm2.NamedHandle{
 			Handle: cPrimary.ObjectHandle,
@@ -167,6 +162,41 @@ func main() {
 		_, err = flushContextCmd.Execute(rwr)
 	}()
 
+	log.Printf("======= Extend PCR  ========")
+	pcrReadRsp, err := tpm2.PCRRead{
+		PCRSelectionIn: tpm2.TPMLPCRSelection{
+			PCRSelections: []tpm2.TPMSPCRSelection{
+				{
+					Hash:      tpm2.TPMAlgSHA256,
+					PCRSelect: tpm2.PCClientCompatible.PCRs(23),
+				},
+			},
+		},
+	}.Execute(rwr)
+	if err != nil {
+		panic(err)
+	}
+	for _, d := range pcrReadRsp.PCRValues.Digests {
+		log.Printf("hex:   %s\n", hex.EncodeToString(d.Buffer))
+	}
+	_, err = tpm2.PCRExtend{
+		PCRHandle: tpm2.AuthHandle{
+			Handle: tpm2.TPMHandle(uint32(*pcr)),
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		Digests: tpm2.TPMLDigestValues{
+			Digests: []tpm2.TPMTHA{
+				{
+					HashAlg: tpm2.TPMAlgSHA256,
+					Digest:  pcrReadRsp.PCRValues.Digests[0].Buffer,
+				},
+			},
+		},
+	}.Execute(rwr)
+	if err != nil {
+		panic(err)
+	}
+
 	sess2, cleanup2, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{}...)
 	if err != nil {
 		log.Fatalf("setting up policy session: %v", err)
@@ -184,14 +214,18 @@ func main() {
 	}
 
 	unsealresp, err := tpm2.Unseal{
-		ItemHandle: tpm2.AuthHandle{
+		// ItemHandle: tpm2.AuthHandle{
+		// 	Handle: aKey.ObjectHandle,
+		// 	Name:   aKey.Name,
+		// 	Auth:   sess2,
+		// },
+		ItemHandle: tpm2.NamedHandle{
 			Handle: aKey.ObjectHandle,
 			Name:   aKey.Name,
-			Auth:   sess2,
 		},
 	}.Execute(rwr)
 	if err != nil {
-		log.Fatalf("executing policyAuthValue: %v", err)
+		log.Fatalf("executing unseal: %v", err)
 	}
 
 	log.Printf("Unsealed %s", string(unsealresp.OutData.Buffer))
