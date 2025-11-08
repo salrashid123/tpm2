@@ -16,10 +16,15 @@ import (
 	"github.com/google/go-tpm/tpmutil"
 )
 
-const (
-	keyPassword = "keypwd"
-)
+/*
+this sample will seal data and ensure PCR(23) is the same value.
 
+# Then it will unseal the data using the pcr value
+
+then it will extend pcr=23
+
+and finally attempt to unseal.  since the pcr value has changed, unseal operation won't work
+*/
 var (
 	tpmPath    = flag.String("tpm-path", "simulator", "Path to the TPM device (character device or a Unix socket).")
 	pcr        = flag.Int("pcr", 23, "PCR to seal data to. Must be within [0, 23].")
@@ -37,19 +42,6 @@ func OpenTPM(path string) (io.ReadWriteCloser, error) {
 		return net.Dial("tcp", path)
 	}
 }
-
-/*
-
-this sample will seal data and ensure PCR(23) is the same value.
-
-Then it will unseal the data using the pcr value
-
-
-then it will extend pcr=23
-
-and finally attempt to unseal.  since the pcr value has changed, unseal operation won't work
-
-*/
 
 func main() {
 	flag.Parse()
@@ -88,6 +80,7 @@ func main() {
 		_, err = flush.Execute(rwr)
 	}()
 
+	// create a policy **TRIAL** session
 	sess, cleanup1, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, tpm2.Trial())
 	if err != nil {
 		log.Fatalf("setting up trial session: %v", err)
@@ -98,6 +91,7 @@ func main() {
 		}
 	}()
 
+	// set the pccrs we're interested in
 	sel := tpm2.TPMLPCRSelection{
 		PCRSelections: []tpm2.TPMSPCRSelection{
 			{
@@ -117,7 +111,7 @@ func main() {
 		log.Fatalf("error executing PolicyPCR: %v", err)
 	}
 
-	// verify the digest
+	// get the policy digest
 	pgd, err := tpm2.PolicyGetDigest{
 		PolicySession: sess.Handle(),
 	}.Execute(rwr)
@@ -128,11 +122,11 @@ func main() {
 	keyTemplate := tpm2.TPMTPublic{
 		Type:       tpm2.TPMAlgKeyedHash,
 		NameAlg:    tpm2.TPMAlgSHA256,
-		AuthPolicy: pgd.PolicyDigest,
+		AuthPolicy: pgd.PolicyDigest, /// <<<<< when you create a key, set the policy digest here
 		ObjectAttributes: tpm2.TPMAObject{
 			FixedTPM:     true,
 			FixedParent:  true,
-			UserWithAuth: false, // toggle
+			UserWithAuth: false,
 		},
 	}
 
@@ -147,7 +141,7 @@ func main() {
 		InSensitive: tpm2.TPM2BSensitiveCreate{
 			Sensitive: &tpm2.TPMSSensitiveCreate{
 				Data: tpm2.NewTPMUSensitiveCreate(&tpm2.TPM2BSensitiveData{
-					Buffer: data,
+					Buffer: data, // <<< this is secret data we want to seal
 				}),
 			},
 		},
@@ -176,6 +170,8 @@ func main() {
 	}()
 
 	log.Printf("======= Unseal  ========")
+
+	// create a **REAL** policysessoin and read the pcr value for the session
 	sess2, cleanup2, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{}...)
 	if err != nil {
 		log.Fatalf("setting up policy session: %v", err)
@@ -192,6 +188,8 @@ func main() {
 		log.Fatalf("executing policyAuthValue: %v", err)
 	}
 
+	// with the active policy session, unseal
+
 	unsealresp, err := tpm2.Unseal{
 		ItemHandle: tpm2.AuthHandle{
 			Handle: aKey.ObjectHandle,
@@ -205,13 +203,14 @@ func main() {
 
 	log.Printf("Unsealed %s", string(unsealresp.OutData.Buffer))
 
+	// now test failure by extending pcr=23
 	log.Printf("======= Extend PCR  ========")
 	pcrReadRsp, err := tpm2.PCRRead{
 		PCRSelectionIn: tpm2.TPMLPCRSelection{
 			PCRSelections: []tpm2.TPMSPCRSelection{
 				{
 					Hash:      tpm2.TPMAlgSHA256,
-					PCRSelect: tpm2.PCClientCompatible.PCRs(23),
+					PCRSelect: tpm2.PCClientCompatible.PCRs(uint(*pcr)),
 				},
 			},
 		},
@@ -243,7 +242,7 @@ func main() {
 			PCRSelections: []tpm2.TPMSPCRSelection{
 				{
 					Hash:      tpm2.TPMAlgSHA256,
-					PCRSelect: tpm2.PCClientCompatible.PCRs(23),
+					PCRSelect: tpm2.PCClientCompatible.PCRs(uint(*pcr)),
 				},
 			},
 		},
@@ -255,6 +254,7 @@ func main() {
 		log.Printf("New PCR Value:   %s\n", hex.EncodeToString(d.Buffer))
 	}
 
+	// attempt to unseal; this will fail because the pcr values are different
 	log.Printf("======= Attempt Unseal ========")
 	sess3, cleanup3, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{}...)
 	if err != nil {
