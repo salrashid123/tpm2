@@ -38,6 +38,19 @@ func OpenTPM(path string) (io.ReadWriteCloser, error) {
 	}
 }
 
+/*
+
+this sample will seal data and ensure PCR(23) is the same value.
+
+Then it will unseal the data using the pcr value
+
+
+then it will extend pcr=23
+
+and finally attempt to unseal.  since the pcr value has changed, unseal operation won't work
+
+*/
+
 func main() {
 	flag.Parse()
 
@@ -119,7 +132,7 @@ func main() {
 		ObjectAttributes: tpm2.TPMAObject{
 			FixedTPM:     true,
 			FixedParent:  true,
-			UserWithAuth: true, // toggle
+			UserWithAuth: false, // toggle
 		},
 	}
 
@@ -162,6 +175,36 @@ func main() {
 		_, err = flushContextCmd.Execute(rwr)
 	}()
 
+	log.Printf("======= Unseal  ========")
+	sess2, cleanup2, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{}...)
+	if err != nil {
+		log.Fatalf("setting up policy session: %v", err)
+	}
+	defer cleanup2()
+
+	_, err = tpm2.PolicyPCR{
+		PolicySession: sess2.Handle(),
+		Pcrs: tpm2.TPMLPCRSelection{
+			PCRSelections: sel.PCRSelections,
+		},
+	}.Execute(rwr)
+	if err != nil {
+		log.Fatalf("executing policyAuthValue: %v", err)
+	}
+
+	unsealresp, err := tpm2.Unseal{
+		ItemHandle: tpm2.AuthHandle{
+			Handle: aKey.ObjectHandle,
+			Name:   aKey.Name,
+			Auth:   sess2,
+		},
+	}.Execute(rwr)
+	if err != nil {
+		log.Fatalf("executing unseal: %v", err)
+	}
+
+	log.Printf("Unsealed %s", string(unsealresp.OutData.Buffer))
+
 	log.Printf("======= Extend PCR  ========")
 	pcrReadRsp, err := tpm2.PCRRead{
 		PCRSelectionIn: tpm2.TPMLPCRSelection{
@@ -176,9 +219,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	for _, d := range pcrReadRsp.PCRValues.Digests {
-		log.Printf("hex:   %s\n", hex.EncodeToString(d.Buffer))
-	}
+
 	_, err = tpm2.PCRExtend{
 		PCRHandle: tpm2.AuthHandle{
 			Handle: tpm2.TPMHandle(uint32(*pcr)),
@@ -197,14 +238,32 @@ func main() {
 		panic(err)
 	}
 
-	sess2, cleanup2, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{}...)
+	pcrReadRspE, err := tpm2.PCRRead{
+		PCRSelectionIn: tpm2.TPMLPCRSelection{
+			PCRSelections: []tpm2.TPMSPCRSelection{
+				{
+					Hash:      tpm2.TPMAlgSHA256,
+					PCRSelect: tpm2.PCClientCompatible.PCRs(23),
+				},
+			},
+		},
+	}.Execute(rwr)
+	if err != nil {
+		panic(err)
+	}
+	for _, d := range pcrReadRspE.PCRValues.Digests {
+		log.Printf("New PCR Value:   %s\n", hex.EncodeToString(d.Buffer))
+	}
+
+	log.Printf("======= Attempt Unseal ========")
+	sess3, cleanup3, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16, []tpm2.AuthOption{}...)
 	if err != nil {
 		log.Fatalf("setting up policy session: %v", err)
 	}
-	defer cleanup2()
+	defer cleanup3()
 
 	_, err = tpm2.PolicyPCR{
-		PolicySession: sess2.Handle(),
+		PolicySession: sess3.Handle(),
 		Pcrs: tpm2.TPMLPCRSelection{
 			PCRSelections: sel.PCRSelections,
 		},
@@ -213,21 +272,21 @@ func main() {
 		log.Fatalf("executing policyAuthValue: %v", err)
 	}
 
-	unsealresp, err := tpm2.Unseal{
-		// ItemHandle: tpm2.AuthHandle{
-		// 	Handle: aKey.ObjectHandle,
-		// 	Name:   aKey.Name,
-		// 	Auth:   sess2,
-		// },
-		ItemHandle: tpm2.NamedHandle{
+	unsealresp3, err := tpm2.Unseal{
+		ItemHandle: tpm2.AuthHandle{
 			Handle: aKey.ObjectHandle,
 			Name:   aKey.Name,
+			Auth:   sess3,
 		},
+		// ItemHandle: tpm2.NamedHandle{
+		// 	Handle: aKey.ObjectHandle,
+		// 	Name:   aKey.Name,
+		// },
 	}.Execute(rwr)
 	if err != nil {
 		log.Fatalf("executing unseal: %v", err)
 	}
 
-	log.Printf("Unsealed %s", string(unsealresp.OutData.Buffer))
+	log.Printf("Unsealed %s", string(unsealresp3.OutData.Buffer))
 
 }
