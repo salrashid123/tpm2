@@ -180,6 +180,8 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 
 - `tpm_remote`: Connect to a remote TPM over inscure TCP  socket
 
+- `attribute_certificate`: generate an attribute certificate as a Platform Certificate
+
 
 ---
 
