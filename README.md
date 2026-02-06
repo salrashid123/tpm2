@@ -20,6 +20,7 @@ Also shown equivalent use of `go-tpm` library set.
 
 * [TPM backed crypto/rand Reader](https://github.com/salrashid123/tpmrand)
 * [golang-jwt for Trusted Platform Module (TPM)](https://github.com/salrashid123/golang-jwt-tpm)
+* [Json Web Encryption (JWE) using TPM backed keys](https://github.com/salrashid123/jwe-tpm)
 * [crypto.Signer, crypto.MessageSigner implementations for Trusted Platform Modules](https://github.com/salrashid123/tpmsigner)
 * [tpm2genkey go utility](https://github.com/salrashid123/tpm2genkey)
 * [OCICrypt provider for Trusted Platform Modules (TPM)](https://github.com/salrashid123/ocicrypt-tpm-keyprovider)
@@ -113,6 +114,8 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 - `sign_wth_rsa`: Generate RSA key with TPM  and sign (`tpm2_create`,`tpm2_load`, `tpm2_sign`, `tpm2_verifysignature`)
 
 - `sign_wth_ecc`: Generate ECC key with TPM  and sign, verify
+
+- `public_key_gen`:  Generate the PEM Public key for rsa_srk, ecc_srk, ecc_ek, rsa_ek or h2
 
 - `encrypte_decrypt_aes`:  encrypt and decrypt with aes key on tpm
 
