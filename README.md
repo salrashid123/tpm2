@@ -129,6 +129,8 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 
 - `password`: Encrypt/Decrypt with passwords on parent and key
 
+- `nv`: NV based operations: reading/writing, policies and using `tpm2_nvincrement` with `tpm2_policynv`
+
 - `h2_primary_template`: using the H2 primary key template
 
 - `rsa_import`: Import external RSA key to TPM; decrypt data with TPM (`tpm2_import, tpm2_load, tpm2_rsadecrypt`)
