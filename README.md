@@ -96,10 +96,8 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 
 - `tpm2_tools_load_ctx`: convert saved context files between `tpm2_tools<>go-tpm` (experimental)
 
-
 - `go_ek_csr`: issue CSR from EKRSA (signing)
 
-- `ek_import_blob`: Seal data using a _real_ tpm's ekcert signed by Optiga
 
 - `tpm_quote_verify`: Generate TPM Quote blob with PCR23 value (`tpm2_createak`, `tpm2_quote`, `tpm2_checkquote`)
 
@@ -147,6 +145,8 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 
 - `tpm2_duplicate_go`: Duplicate HMAC key from one tpm to another using go-tpm's direct API.  Also calculate HMAC in go using the TPM
 
+- `tpm2_importblob_ek`:  Use `go-tpm-tools` ImportBlob function to seal some data locally using a remote TPM's EK and then unseal it over there.
+
 - `hmac_import`: Import an external hmac key and use it to do hmac-stuff
 
 - `hmac_import`: Import an external aes key and use it to do hmac-stuff
@@ -154,14 +154,6 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 - `policy`: Samples covering using session policy (pcr, policysigned, password, authvalue)
 
 - `policy_gen`: Extract and use the raw low-level policy command parameters
-
-- `tpm_services`: samples in go for  standalone remote attestation, quote-verify and seal-unseal
-
-- `ek_import_blob`: Transfer secret  using ekPub only. Example only covers `go-tpm` based transfer (TODO: figure out the `tpm2_tools` flow).
-      * see  to [https://github.com/salrashid123/gcp_tpm_sealed_keys](https://github.com/salrashid123/gcp_tpm_sealed_keys) 
-
-- `ek_import_rsa_blob`: Transfer RSA key from your local system to a GCP vTPM using its ekPub only. Example only covers `go-tpm` based transfer.  For example, use this mechanism to transfer a Service Account Private key securely such that the key on the vTPM cannot be exported but yet available to sign and authenticate.
-      * see  to [https://github.com/salrashid123/gcp_tpm_sealed_keys](https://github.com/salrashid123/gcp_tpm_sealed_keys)
 
 - `mTLS`:  mTLS using `go-tpm` and nginx
 
