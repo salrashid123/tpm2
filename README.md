@@ -81,6 +81,7 @@ Additional References:
 Update 8/28/21:  Added a gRPC client/server that does full remote attestation, quote/verify and secret sharing:
 
 - [https://github.com/salrashid123/go_tpm_remote_attestation](https://github.com/salrashid123/go_tpm_remote_attestation)
+- also see an implementation of [EK-Based Key Attestation with TPM Firmware Version](https://trustedcomputinggroup.org/wp-content/uploads/EK-Based-Key-Attestation-with-TPM-Firmware-Version-Version-1_Pub.pdf) in the `ek_attestation/` folder
 
 ## Usecases:
 
@@ -97,7 +98,6 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 - `tpm2_tools_load_ctx`: convert saved context files between `tpm2_tools<>go-tpm` (experimental)
 
 - `go_ek_csr`: issue CSR from EKRSA (signing)
-
 
 - `tpm_quote_verify`: Generate TPM Quote blob with PCR23 value (`tpm2_createak`, `tpm2_quote`, `tpm2_checkquote`)
 
