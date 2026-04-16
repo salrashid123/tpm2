@@ -4,7 +4,7 @@
 Simple demo of [EK-Based Key Attestation with TPM Firmware Version](https://trustedcomputinggroup.org/wp-content/uploads/EK-Based-Key-Attestation-with-TPM-Firmware-Version-Version-1_Pub.pdf)
 
 
-![images/ek_attestation.png](ek_attestation.png)
+![images/ek_attestation.png](images/ek_attestation.png)
 
 
 ```bash
