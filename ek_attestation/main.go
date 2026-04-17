@@ -364,7 +364,7 @@ func main() {
 	}
 	primaryEKPEMByte2 := pem.EncodeToMemory(block2)
 
-	log.Printf("RSA createPrimary public \n%s\n", string(primaryEKPEMByte2))
+	log.Printf("RSA EK public \n%s\n", string(primaryEKPEMByte2))
 
 	/// *********
 	log.Println("======= Attestor imports the duplicated hmac key ========")
@@ -587,6 +587,49 @@ func main() {
 	log.Printf("Certify Firmware Version %d\n", int64(cr.FirmwareVersion))
 	log.Printf("Certify AK Name %s\n", hex.EncodeToString(cer.Name.Buffer))
 	log.Printf("Certify Extra Data %s\n", string(cr.ExtraData.Buffer))
+
+	/// derive AK from template
+	// you can derive the name from this and compare it to what was in the Certify.Name.Buffer above
+
+	derivedRSAAKTemplate := tpm2.TPMTPublic{
+		Type:    tpm2.TPMAlgRSA,
+		NameAlg: tpm2.TPMAlgSHA256,
+		ObjectAttributes: tpm2.TPMAObject{
+			FixedTPM:            true,
+			FixedParent:         true,
+			SensitiveDataOrigin: true,
+			UserWithAuth:        true,
+			Restricted:          true,
+			SignEncrypt:         true,
+		},
+		Parameters: tpm2.NewTPMUPublicParms(
+			tpm2.TPMAlgRSA,
+			&tpm2.TPMSRSAParms{
+				Scheme: tpm2.TPMTRSAScheme{
+					Scheme: tpm2.TPMAlgRSASSA,
+					Details: tpm2.NewTPMUAsymScheme(
+						tpm2.TPMAlgRSASSA,
+						&tpm2.TPMSSigSchemeRSASSA{
+							HashAlg: tpm2.TPMAlgSHA256,
+						},
+					),
+				},
+				KeyBits: 2048,
+			},
+		),
+		Unique: tpm2.NewTPMUPublicID(
+			tpm2.TPMAlgRSA,
+			&tpm2.TPM2BPublicKeyRSA{
+				Buffer: rrsaPuba.N.Bytes(),
+			},
+		),
+	}
+
+	derivedName, err := tpm2.ObjectName(&derivedRSAAKTemplate)
+	if err != nil {
+		log.Fatalf("Failed to get name key: %v", err)
+	}
+	log.Printf("Derived Name from rsa PublicKey %s", hex.EncodeToString(derivedName.Buffer))
 
 	log.Println("======= Attestor verifies the HMAC signature of the attesation certification info  ========")
 	ha := hmac.New(sha256.New, []byte(*keySensitive))
