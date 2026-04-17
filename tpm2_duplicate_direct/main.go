@@ -190,12 +190,12 @@ func main() {
 		panic(err)
 	}
 
-	h, err := ekPububFromPEMTemplate.NameAlg.Hash()
+	ekHash, err := ekPububFromPEMTemplate.NameAlg.Hash()
 	if err != nil {
 		log.Fatalf("Failed ek.Scheme.Scheme.Hash: %v", err)
 	}
 	encryptedSeed, err = rsa.EncryptOAEP(
-		h.New(),
+		ekHash.New(),
 		rand.Reader,
 		ekrsaPub,
 		seed,
@@ -223,20 +223,15 @@ func main() {
 
 	fmt.Printf("RSAPublic Name %s\n", hex.EncodeToString(nameEncoded))
 
-	ekbi, err := ek.Symmetric.KeyBits.AES()
+	ekTPMKeyBits, err := ek.Symmetric.KeyBits.AES()
 	if err != nil {
 		log.Fatalf("Failed to get name key: %v", err)
 	}
 
-	symSize := int(*ekbi)
-
-	h2, err := ekPububFromPEMTemplate.NameAlg.Hash()
-	if err != nil {
-		log.Fatalf("Failed ek.Scheme.Scheme.Hash: %v", err)
-	}
+	symSize := int(*ekTPMKeyBits)
 
 	symmetricKey := tpm2.KDFa(
-		h2,
+		ekHash,
 		seed,
 		"STORAGE",
 		nameEncoded,
@@ -255,22 +250,18 @@ func main() {
 	// end encryptSecret
 
 	// start createHMAC
-	h3, err := ekPububFromPEMTemplate.NameAlg.Hash()
-	if err != nil {
-		log.Fatalf("Failed ek.Scheme.Scheme.Hash: %v", err)
-	}
 
 	macKey := tpm2.KDFa(
-		h3,
+		ekHash,
 		seed,
 		"INTEGRITY",
 		/*contextU=*/ nil,
 		/*contextV=*/ nil,
-		h3.New().Size()*8)
+		ekHash.New().Size()*8)
 	if err != nil {
 		log.Fatalf("Failed to get name key: %v", err)
 	}
-	mac := hmac.New(func() hash.Hash { return h.New() }, macKey)
+	mac := hmac.New(func() hash.Hash { return ekHash.New() }, macKey)
 	mac.Write(encryptedSecret)
 	mac.Write(nameEncoded)
 	hmacSum := mac.Sum(nil)
@@ -309,15 +300,15 @@ func main() {
 
 	/// *********
 
-	rsaEKpub, err := cPrimary.OutPublic.Contents()
+	rsaEKpubContents, err := cPrimary.OutPublic.Contents()
 	if err != nil {
 		log.Fatalf("Failed to get rsa public: %v", err)
 	}
-	rsaEKDetail, err := rsaEKpub.Parameters.RSADetail()
+	rsaEKDetail, err := rsaEKpubContents.Parameters.RSADetail()
 	if err != nil {
 		log.Fatalf("Failed to get rsa details: %v", err)
 	}
-	rsaEKUnique, err := rsaEKpub.Unique.RSA()
+	rsaEKUnique, err := rsaEKpubContents.Unique.RSA()
 	if err != nil {
 		log.Fatalf("Failed to get rsa unique: %v", err)
 	}
@@ -327,14 +318,14 @@ func main() {
 		log.Fatalf("Failed to get rsa public key: %v", err)
 	}
 
-	b4, err := x509.MarshalPKIXPublicKey(primaryRsaEKPub)
+	primaryRSADER, err := x509.MarshalPKIXPublicKey(primaryRsaEKPub)
 	if err != nil {
 		log.Fatalf("Unable to convert rsaGCEAKPub: %v", err)
 	}
 
 	block := &pem.Block{
 		Type:  "PUBLIC KEY",
-		Bytes: b4,
+		Bytes: primaryRSADER,
 	}
 	primaryEKPEMByte := pem.EncodeToMemory(block)
 

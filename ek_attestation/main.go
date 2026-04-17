@@ -48,10 +48,8 @@ func OpenTPM(path string) (io.ReadWriteCloser, error) {
 func main() {
 	flag.Parse()
 
-	log.Println("======= create ekPublic on Attestor  ========")
-
 	//// ********************  1 ATTESTOR
-
+	log.Println("======= create ekPublic on Attestor  ========")
 	rwc, err := OpenTPM(*tpmPath)
 	if err != nil {
 		log.Fatalf("can't open TPM %q: %v", *tpmPath, err)
@@ -63,7 +61,6 @@ func main() {
 	rwr := transport.FromReadWriter(rwc)
 
 	// first get the EKPublic from the Attestor (HOST)
-	log.Printf("======= EK ========")
 
 	cCreateEK, err := tpm2.CreatePrimary{
 		PrimaryHandle: tpm2.TPMRHEndorsement,
@@ -126,6 +123,7 @@ func main() {
 		FlushHandle: cCreateEK.ObjectHandle,
 	}
 	_, _ = flushContextCmd.Execute(rwr)
+
 	//// ******************** 2  VERIFIER
 	// now pretend to send that EK Public PEM to the Verifier
 
@@ -144,6 +142,7 @@ func main() {
 		log.Fatalf("Failed to get public")
 	}
 
+	// now regenerate the tpm key template from the rsa public key
 	u := tpm2.NewTPMUPublicID(
 		tpm2.TPMAlgRSA,
 		&tpm2.TPM2BPublicKeyRSA{
@@ -208,16 +207,30 @@ func main() {
 		Buffer: []byte(nil), // set any userAuth
 	}
 
+	// the follwoing performs a duplication of the  dupKeyTemplate wihout involving a local TPM
+
 	sens2B := tpm2.Marshal(sens)
 
 	packedSecret := tpm2.Marshal(tpm2.TPM2BPrivate{Buffer: sens2B})
 
 	var seed, encryptedSeed []byte
 
+	// reacquire the TPM's ek public RSA details
 	ek, err := ekPububFromPEMTemplate.Parameters.RSADetail()
 	if err != nil {
 		log.Fatalf("Failed to get name key: %v", err)
 	}
+	ekHash, err := ekPububFromPEMTemplate.NameAlg.Hash()
+	if err != nil {
+		log.Fatalf("Failed ek.Scheme.Scheme.Hash: %v", err)
+	}
+
+	ekaekBits, err := ek.Symmetric.KeyBits.AES()
+	if err != nil {
+		log.Fatalf("Failed to get name key: %v", err)
+	}
+
+	symSize := int(*ekaekBits)
 
 	//  start createRSASeed
 	aeskeybits, err := ek.Symmetric.KeyBits.AES()
@@ -230,12 +243,8 @@ func main() {
 		panic(err)
 	}
 
-	h, err := ekPububFromPEMTemplate.NameAlg.Hash()
-	if err != nil {
-		log.Fatalf("Failed ek.Scheme.Scheme.Hash: %v", err)
-	}
 	encryptedSeed, err = rsa.EncryptOAEP(
-		h.New(),
+		ekHash.New(),
 		rand.Reader,
 		ekrsaPub,
 		seed,
@@ -258,50 +267,34 @@ func main() {
 
 	fmt.Printf("duplicateTemplate Name %s\n", hex.EncodeToString(nameEncoded))
 
-	ekbi, err := ek.Symmetric.KeyBits.AES()
-	if err != nil {
-		log.Fatalf("Failed to get name key: %v", err)
-	}
-
-	symSize := int(*ekbi)
-
-	h2, err := ekPububFromPEMTemplate.NameAlg.Hash()
-	if err != nil {
-		log.Fatalf("Failed ek.Scheme.Scheme.Hash: %v", err)
-	}
-
 	symmetricKey := tpm2.KDFa(
-		h2,
+		ekHash,
 		seed,
 		"STORAGE",
 		nameEncoded,
 		/*contextV=*/ nil,
 		symSize)
 
-	c, err := aes.NewCipher(symmetricKey)
+	aescipher, err := aes.NewCipher(symmetricKey)
 	if err != nil {
 		log.Fatalf("Failed to get name key: %v", err)
 	}
 	encryptedSecret := make([]byte, len(packedSecret))
 	iv := make([]byte, len(symmetricKey))
-	cipher.NewCFBEncrypter(c, iv).XORKeyStream(encryptedSecret, packedSecret)
+	cipher.NewCFBEncrypter(aescipher, iv).XORKeyStream(encryptedSecret, packedSecret)
 	// end encryptSecret
 
 	// start createHMAC
-	h3, err := ekPububFromPEMTemplate.NameAlg.Hash()
-	if err != nil {
-		log.Fatalf("Failed ek.Scheme.Scheme.Hash: %v", err)
-	}
 
 	macKey := tpm2.KDFa(
-		h3,
+		ekHash,
 		seed,
 		"INTEGRITY",
 		/*contextU=*/ nil,
 		/*contextV=*/ nil,
-		h3.New().Size()*8)
+		ekHash.New().Size()*8)
 
-	mac := hmac.New(func() hash.Hash { return h.New() }, macKey)
+	mac := hmac.New(func() hash.Hash { return ekHash.New() }, macKey)
 	mac.Write(encryptedSecret)
 	mac.Write(nameEncoded)
 	hmacSum := mac.Sum(nil)
@@ -310,12 +303,16 @@ func main() {
 	dup := tpm2.Marshal(tpm2.TPM2BPrivate{Buffer: hmacSum})
 	dup = append(dup, encryptedSecret...)
 
-	pubEncodedx := tpm2.Marshal(&dupKeyTemplate)
+	dupTemplateMarshalled := tpm2.Marshal(&dupKeyTemplate)
 
-	log.Println("======= verifier send duplicate key, duplicate seed and duplicate pub to Attestor ========")
+	// we've now dupliated the hmac key using the EKPub, now the attestor needs to send
+	//  dup, dupseed and dupPub to the attestor
 
+	log.Println("======= verifier sends duplicate key, duplicate seed and duplicate pub to Attestor ========")
+
+	// on the attestor, recreate the EK (since this step maybe at a later time than the original step to create the ekPublic pem)
 	log.Println("======= Attestor creates  EK ========")
-	cPrimary, err := tpm2.CreatePrimary{
+	cPrimaryEK, err := tpm2.CreatePrimary{
 		PrimaryHandle: tpm2.AuthHandle{
 			Handle: tpm2.TPMRHEndorsement,
 			Name:   tpm2.HandleName(tpm2.TPMRHEndorsement),
@@ -328,46 +325,15 @@ func main() {
 	}
 	defer func() {
 		flush := tpm2.FlushContext{
-			FlushHandle: cPrimary.ObjectHandle,
+			FlushHandle: cPrimaryEK.ObjectHandle,
 		}
 		_, _ = flush.Execute(rwr)
 	}()
 
 	/// *********
 
-	rsaEKpub2, err := cPrimary.OutPublic.Contents()
-	if err != nil {
-		log.Fatalf("Failed to get rsa public: %v", err)
-	}
-	rsaEKDetail2, err := rsaEKpub2.Parameters.RSADetail()
-	if err != nil {
-		log.Fatalf("Failed to get rsa details: %v", err)
-	}
-	rsaEKUnique2, err := rsaEKpub2.Unique.RSA()
-	if err != nil {
-		log.Fatalf("Failed to get rsa unique: %v", err)
-	}
-
-	primaryRsaEKPub2, err := tpm2.RSAPub(rsaEKDetail2, rsaEKUnique2)
-	if err != nil {
-		log.Fatalf("Failed to get rsa public key: %v", err)
-	}
-
-	b42, err := x509.MarshalPKIXPublicKey(primaryRsaEKPub2)
-	if err != nil {
-		log.Fatalf("Unable to convert rsaGCEAKPub: %v", err)
-	}
-
-	block2 := &pem.Block{
-		Type:  "PUBLIC KEY",
-		Bytes: b42,
-	}
-	primaryEKPEMByte2 := pem.EncodeToMemory(block2)
-
-	log.Printf("RSA EK public \n%s\n", string(primaryEKPEMByte2))
-
-	/// *********
 	log.Println("======= Attestor imports the duplicated hmac key ========")
+
 	import_sess, import_session_cleanup, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16)
 	if err != nil {
 		log.Fatalf("FailedPolicySession: %v", err)
@@ -382,17 +348,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed PolicySecret: %v", err)
 	}
-	// now import the duplicated key
 
-	dupPub, err := tpm2.Unmarshal[tpm2.TPMTPublic](pubEncodedx)
+	// now import the duplicated key
+	dupPub, err := tpm2.Unmarshal[tpm2.TPMTPublic](dupTemplateMarshalled)
 	if err != nil {
 		log.Fatalf("Failed Unmarshal: %v", err)
 	}
 
 	importResponse, err := tpm2.Import{
 		ParentHandle: tpm2.AuthHandle{
-			Handle: cPrimary.ObjectHandle,
-			Name:   cPrimary.Name,
+			Handle: cPrimaryEK.ObjectHandle,
+			Name:   cPrimaryEK.Name,
 			Auth:   import_sess,
 		},
 		ObjectPublic: tpm2.New2B(*dupPub),
@@ -411,6 +377,8 @@ func main() {
 		log.Fatalf("Failed cleanup: %v", err)
 	}
 
+	// now load the imported key
+
 	load_sess, load_session_cleanup, err := tpm2.PolicySession(rwr, tpm2.TPMAlgSHA256, 16)
 	if err != nil {
 		log.Fatalf("FailedPolicySession: %v", err)
@@ -426,10 +394,10 @@ func main() {
 		log.Fatalf("Failed PolicySecret: %v", err)
 	}
 
-	loadResponse, err := tpm2.Load{
+	loadedHmacKey, err := tpm2.Load{
 		ParentHandle: tpm2.AuthHandle{
-			Handle: cPrimary.ObjectHandle,
-			Name:   cPrimary.Name,
+			Handle: cPrimaryEK.ObjectHandle,
+			Name:   cPrimaryEK.Name,
 			Auth:   load_sess,
 		},
 		InPublic:  tpm2.New2B(dupKeyTemplate),
@@ -441,7 +409,7 @@ func main() {
 
 	defer func() {
 		flushContextCmd := tpm2.FlushContext{
-			FlushHandle: loadResponse.ObjectHandle,
+			FlushHandle: loadedHmacKey.ObjectHandle,
 		}
 		_, _ = flushContextCmd.Execute(rwr)
 	}()
@@ -500,8 +468,8 @@ func main() {
 	akResponse, err := tpm2.CreateLoaded{
 		//ParentHandle: tpm2.TPMRHEndorsement,
 		ParentHandle: tpm2.AuthHandle{
-			Handle: cPrimary.ObjectHandle,
-			Name:   cPrimary.Name,
+			Handle: cPrimaryEK.ObjectHandle,
+			Name:   cPrimaryEK.Name,
 			Auth:   sess,
 		},
 		InPublic: tpm2.New2BTemplate(&RSAAKTemplate),
@@ -519,35 +487,37 @@ func main() {
 
 	log.Printf("Created AK Name :%s", hex.EncodeToString(akResponse.Name.Buffer))
 
-	rpuba, err := akResponse.OutPublic.Contents()
+	// now print out the PEM format of the RSA KEy
+	akContents, err := akResponse.OutPublic.Contents()
 	if err != nil {
 		log.Fatalf("Failed to get rsa public: %v", err)
 	}
-	rrsaDetaila, err := rpuba.Parameters.RSADetail()
+	akDetails, err := akContents.Parameters.RSADetail()
 	if err != nil {
 		log.Fatalf("Failed to get rsa details: %v", err)
 	}
-	rrsaUniquea, err := rpuba.Unique.RSA()
+	akUnique, err := akContents.Unique.RSA()
 	if err != nil {
 		log.Fatalf("Failed to get rsa unique: %v", err)
 	}
 
-	rrsaPuba, err := tpm2.RSAPub(rrsaDetaila, rrsaUniquea)
+	akRSAPub, err := tpm2.RSAPub(akDetails, akUnique)
 	if err != nil {
 		log.Fatalf("Failed to get rsa public key: %v", err)
 	}
 
-	b4aa, err := x509.MarshalPKIXPublicKey(rrsaPuba)
+	akPubDER, err := x509.MarshalPKIXPublicKey(akRSAPub)
 	if err != nil {
 		log.Fatalf("Unable to convert rsaGCEAKPub: %v", err)
 	}
 
-	blocka := &pem.Block{
+	akPubBlock := &pem.Block{
 		Type:  "PUBLIC KEY",
-		Bytes: b4aa,
+		Bytes: akPubDER,
 	}
-	keyPEMBytea := pem.EncodeToMemory(blocka)
-	log.Printf("RSA Key \n%s\n", string(keyPEMBytea))
+	akPubPEM := pem.EncodeToMemory(akPubBlock)
+	log.Printf("AK RSA Key \n%s\n", string(akPubPEM))
+
 	log.Println("======= Attestor certifies ak with the duplicated key ========")
 	//qualifyingData := []byte("foo")
 	certifyResponse, err := tpm2.Certify{
@@ -556,23 +526,23 @@ func main() {
 			Name:   akResponse.Name,
 		},
 		SignHandle: tpm2.NamedHandle{
-			Handle: loadResponse.ObjectHandle,
-			Name:   loadResponse.Name,
+			Handle: loadedHmacKey.ObjectHandle,
+			Name:   loadedHmacKey.Name,
 		},
 		// QualifyingData: tpm2.TPM2BData{
 		// 	Buffer: qualifyingData,
 		// },
 	}.Execute(rwr)
 	if err != nil {
-		log.Fatalf("can't create rsa %v", err)
+		log.Fatalf("can't certify key %v", err)
 	}
 
-	log.Println("======= Attestor sends attestation signature and attestation to Verifier ========")
+	log.Println("======= Attestor sends attestation signature,attestation and the AK RSA Public key to Verifier ========")
 	crs, err := certifyResponse.Signature.Signature.HMAC()
 	if err != nil {
 		log.Fatalf("can't certifyResponse signature %v", err)
 	}
-	log.Printf("Certify Response of Signature \n%s\n", base64.StdEncoding.EncodeToString(crs.Digest))
+	log.Printf("Certify Response digest %s\n", base64.StdEncoding.EncodeToString(crs.Digest))
 
 	cr, err := certifyResponse.CertifyInfo.Contents()
 	if err != nil {
@@ -588,7 +558,7 @@ func main() {
 	log.Printf("Certify AK Name %s\n", hex.EncodeToString(cer.Name.Buffer))
 	log.Printf("Certify Extra Data %s\n", string(cr.ExtraData.Buffer))
 
-	/// derive AK from template
+	/// derive AK from template and the RSA Public key
 	// you can derive the name from this and compare it to what was in the Certify.Name.Buffer above
 
 	derivedRSAAKTemplate := tpm2.TPMTPublic{
@@ -620,7 +590,7 @@ func main() {
 		Unique: tpm2.NewTPMUPublicID(
 			tpm2.TPMAlgRSA,
 			&tpm2.TPM2BPublicKeyRSA{
-				Buffer: rrsaPuba.N.Bytes(),
+				Buffer: akRSAPub.N.Bytes(), // the verifier uses the AK Public key to renerate the 'name'
 			},
 		),
 	}
@@ -631,17 +601,24 @@ func main() {
 	}
 	log.Printf("Derived Name from rsa PublicKey %s", hex.EncodeToString(derivedName.Buffer))
 
+	if bytes.Equal(derivedName.Buffer, cer.Name.Buffer) {
+		log.Println("Attesation names match")
+	} else {
+		log.Fatal("attestation names do not match")
+	}
+
 	log.Println("======= Attestor verifies the HMAC signature of the attesation certification info  ========")
+
 	ha := hmac.New(sha256.New, []byte(*keySensitive))
 	attestHash := sha256.Sum256(certifyResponse.CertifyInfo.Bytes())
 	ha.Write(attestHash[:])
 
-	fmt.Println(base64.StdEncoding.EncodeToString(ha.Sum(nil)))
+	log.Printf("calculated hmac of attestation using local hmac key %s\n", base64.StdEncoding.EncodeToString(ha.Sum(nil)))
 
 	if bytes.Equal(ha.Sum(nil), crs.Digest) {
 		log.Println("attestation verified")
 	} else {
-		log.Println("Invalid attestation")
+		log.Fatalf("Invalid attestation")
 	}
 
 }
