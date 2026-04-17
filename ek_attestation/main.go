@@ -537,7 +537,7 @@ func main() {
 		log.Fatalf("can't certify key %v", err)
 	}
 
-	log.Println("======= Attestor sends attestation signature,attestation and the AK RSA Public key to Verifier ========")
+	log.Println("======= Attestor sends attestation signature,attestation and the AK RSA Public key (akPubPEM) to Verifier ========")
 	crs, err := certifyResponse.Signature.Signature.HMAC()
 	if err != nil {
 		log.Fatalf("can't certifyResponse signature %v", err)
@@ -559,6 +559,19 @@ func main() {
 	log.Printf("Certify Extra Data %s\n", string(cr.ExtraData.Buffer))
 
 	/// derive AK from template and the RSA Public key
+
+	// first get the pulbic key from the akPEM sent over by the verifier
+	blockPEM, _ := pem.Decode(akPubPEM)
+	if blockPEM == nil {
+		log.Fatal("failed to decode PEM block containing public key")
+	}
+	akPubVeriferPEMParsed, err := x509.ParsePKIXPublicKey(blockPEM.Bytes)
+	if err != nil {
+		log.Fatalf("Unable to convert rsaGCEAKPub: %v", err)
+	}
+
+	pubKey := akPubVeriferPEMParsed.(*rsa.PublicKey)
+
 	// you can derive the name from this and compare it to what was in the Certify.Name.Buffer above
 
 	derivedRSAAKTemplate := tpm2.TPMTPublic{
@@ -590,7 +603,7 @@ func main() {
 		Unique: tpm2.NewTPMUPublicID(
 			tpm2.TPMAlgRSA,
 			&tpm2.TPM2BPublicKeyRSA{
-				Buffer: akRSAPub.N.Bytes(), // the verifier uses the AK Public key to renerate the 'name'
+				Buffer: pubKey.N.Bytes(), // the verifier uses the AK Public key to renerate the 'name'
 			},
 		),
 	}

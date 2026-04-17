@@ -14,60 +14,50 @@ export TPM2TOOLS_TCTI="swtpm:port=2321"
 
 
 $ go run main.go 
-2026/04/16 16:50:30 ======= create ekPublic on Attestor  ========
-2026/04/16 16:50:30 ======= EK ========
-2026/04/16 16:50:30 Name 000b90b36864964f9ecf5fce75319f622c44a2d8e2e835c8576e3d60d1d5905a1dc2
-2026/04/16 16:50:30 RSA EK createPrimary public 
+
+2026/04/17 10:28:07 ======= create ekPublic on Attestor  ========
+2026/04/17 10:28:07 Name 000b3f0a4250b207f11b4362c6db35ce02c6ceba71cc4013117fcab121ee98f202b6
+2026/04/17 10:28:07 RSA EK createPrimary public 
 -----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2vyQ55UcNjMG2QNML6z+
-GbJw9mZXsXhCHYVZ3n8ccCyRahHHGHNWOgi/LFRe7MDXTDMXteYhFFmZDbUOeNng
-NpUtQTwzyQL8eKx4gXSn6xSnyPzjE05zLByOtE86Y8FqW1uCtN4jXp1cj6xZ+9LB
-Fjr8J/0boluCdF2ymFBqoLZU2sxekem18ON1CrT0jIA0zNQAmJ0oOoQ5iu/C1pI0
-Zcb5UyPKvopby6xX85Hhb1UaKO+KVMOplsBLdFDEVd5icdELFdmqJUpF1RkhbGBr
-ow3I5f9+k6iDzO4Jzl6o5bRFwi8korbTEIo4iGhx/XghrmWdPAddc4tLquW3IW3/
-lwIDAQAB
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAlApbI0PRwxG3/g2nOXkM
+pt9Rk5b1+PaJYrpsQsdVd+At9anP0LiEuq3Nyf0E1MIvbYxPrRQFzo+OWeeL3Aqm
+VB61zKzgfKmknIyBDS2S29hOVXjQyPu2mCkSZQ2Pti/0e8JlpVNjZd0YnGqpfvaU
+F28bMDmko4a58KjGqdBt2Z9Djne4CdPHjro+9StW4m4fMy/zETWHzPSqH9Rse2y1
+iL+7ve7sLtXbN3ff10SMjw45+Lkyfwa1r+D2hMDTgHpcvFCGWau9pZIFHVenBEbE
+QV7xfXQd4aMaClWyqPkRRwseV0QxRQltbplTdz28Wb8FfmCR8Eh0F+jnuK5vy8GE
+0QIDAQAB
 -----END PUBLIC KEY-----
 
-2026/04/16 16:50:30 ======= send the ekPub.PEM to the Verifier ========
-2026/04/16 16:50:30 ======= create a random HMAC key and duplicate it ========
-duplicateTemplate Name 000b4b100bd0c4a6cd7a32e20312ac23353c2662ccf6644cb3ab1d6da415e4f0e2f6
-2026/04/16 16:50:30 ======= verifier send duplicate key, duplicate seed and duplicate pub to Attestor ========
-2026/04/16 16:50:30 ======= Attestor creates  EK ========
-2026/04/16 16:50:30 RSA createPrimary public 
+2026/04/17 10:28:07 ======= send the ekPub.PEM to the Verifier ========
+2026/04/17 10:28:07 ======= create a random HMAC key and duplicate it ========
+duplicateTemplate Name 000b46bd301af69ae8d0a23657d3716e2e9065817d19c7cca9ca3a216b1666a619cc
+2026/04/17 10:28:07 ======= verifier sends duplicate key, duplicate seed and duplicate pub to Attestor ========
+2026/04/17 10:28:07 ======= Attestor creates  EK ========
+2026/04/17 10:28:07 ======= Attestor imports the duplicated hmac key ========
+2026/04/17 10:28:07 ======= Attestor creates AK ========
+2026/04/17 10:28:07 Created AK Name :000b2d7732b0f4eac16a730fad18c247a62ac940b8afebad88493f01192d26de6b86
+2026/04/17 10:28:07 AK RSA Key 
 -----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2vyQ55UcNjMG2QNML6z+
-GbJw9mZXsXhCHYVZ3n8ccCyRahHHGHNWOgi/LFRe7MDXTDMXteYhFFmZDbUOeNng
-NpUtQTwzyQL8eKx4gXSn6xSnyPzjE05zLByOtE86Y8FqW1uCtN4jXp1cj6xZ+9LB
-Fjr8J/0boluCdF2ymFBqoLZU2sxekem18ON1CrT0jIA0zNQAmJ0oOoQ5iu/C1pI0
-Zcb5UyPKvopby6xX85Hhb1UaKO+KVMOplsBLdFDEVd5icdELFdmqJUpF1RkhbGBr
-ow3I5f9+k6iDzO4Jzl6o5bRFwi8korbTEIo4iGhx/XghrmWdPAddc4tLquW3IW3/
-lwIDAQAB
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAs85JVjtTDGRMgBbw3fLL
+4KiS1zgfHdY2jsJihdHjdPEydUEhsx3AMUouJyKmq+o1gvw8ra4TBkZCDk51WUvl
+XJugki5jyNCig699BLfMOLvGwo5wy+avHDegPYzVpGJ81H4jx4ObElHiJtKbG2Yx
+mB8YWn2RfimHladjjuvWD4w4AZoPFF00z7WFqx3TlQADjR3ZjIX7BH+8pEXWuPC0
+mEO7n43iO/KsDeqy8kxslSQiw6GIJw0jA2NdKH3Sj+iH4cSJPaNwAKqXuKWW/Azi
+yz7Qj/Ul6pC6ygMOXI9vY+LTpJfAARnJ9he4CDROb4hVUhO/F8eqmxYYhasSWyeo
+RQIDAQAB
 -----END PUBLIC KEY-----
 
-2026/04/16 16:50:30 ======= Attestor imports the duplicated hmac key ========
-2026/04/16 16:50:30 ======= Attestor creates AK ========
-2026/04/16 16:50:30 Created AK Name :000bc81d2b561077aacac387d6076eef08d9f15102a99c0091eb7115db9da66a6570
-2026/04/16 16:50:30 RSA Key 
------BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkz6vT0Mx2nmvVa97g/IM
-714nF+bDdcEXcHifImp5m3zeKKfwhlrI/0gJBxadhfJTp3+RRcueahg0owGt43nR
-EyKsfJ8KgDlB5wBDflI6GLko3f76Vp8F97bCvDHmfWrurKHwZ4gNuxm7gFXaKbpN
-Knw4z3HyZwwRaWNVjmUI6cGjGxkAnpzn+Mrp9os463JaD8fPVfUWrkQaIt3O/OB5
-NR/jDC/OCQsSAPCFXhPOIb39QqJdZGKx45OuQsFcjEIUqfka4cXF95SFaFJbtx++
-zGRbk0L1htPzdSMIwwXU+2i/2Z6VZ3Dd6xRYZ7AkcCocgsYrWYJC9EUDVYf5Zg8F
-MQIDAQAB
------END PUBLIC KEY-----
-
-2026/04/16 16:50:30 ======= Attestor certifies ak with the duplicated key ========
-2026/04/16 16:50:30 ======= Attestor sends attestation signature and attestation to Verifier ========
-2026/04/16 16:50:30 Certify Response of Signature 
-nSxEA6HQeQW5cD3jQ9zYxhmJtJ+mcqI9AzM9dzFFHss=
-2026/04/16 16:50:30 ======= verifier checks attesatation certification info specifications ========
-2026/04/16 16:50:30 Certify Firmware Version 2315977366801874944
-2026/04/16 16:50:30 Certify AK Name 000bc81d2b561077aacac387d6076eef08d9f15102a99c0091eb7115db9da66a6570
-2026/04/16 16:50:30 Certify Extra Data 
-2026/04/16 16:50:30 ======= Attestor verifies the HMAC signature of the attesation certification info  ========
-nSxEA6HQeQW5cD3jQ9zYxhmJtJ+mcqI9AzM9dzFFHss=
-2026/04/16 16:50:30 attestation verified
+2026/04/17 10:28:07 ======= Attestor certifies ak with the duplicated key ========
+2026/04/17 10:28:07 ======= Attestor sends attestation signature,attestation and the AK RSA Public key (akPubPEM) to Verifier ========
+2026/04/17 10:28:07 Certify Response digest M4qEUUdA2ny8SoZqoTvhEVSQCAHFQiArOzuaIVWjtnA=
+2026/04/17 10:28:07 ======= verifier checks attesatation certification info specifications ========
+2026/04/17 10:28:07 Certify Firmware Version 2315977366801874944
+2026/04/17 10:28:07 Certify AK Name 000b2d7732b0f4eac16a730fad18c247a62ac940b8afebad88493f01192d26de6b86
+2026/04/17 10:28:07 Certify Extra Data 
+2026/04/17 10:28:07 Derived Name from rsa PublicKey 000b2d7732b0f4eac16a730fad18c247a62ac940b8afebad88493f01192d26de6b86
+2026/04/17 10:28:07 Attesation names match
+2026/04/17 10:28:07 ======= Attestor verifies the HMAC signature of the attesation certification info  ========
+2026/04/17 10:28:07 calculated hmac of attestation using local hmac key M4qEUUdA2ny8SoZqoTvhEVSQCAHFQiArOzuaIVWjtnA=
+2026/04/17 10:28:07 attestation verified
 
 ```
