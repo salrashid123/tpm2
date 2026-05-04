@@ -554,7 +554,18 @@ func main() {
 		log.Fatalf("can't read certifyinfo %v", err)
 	}
 	log.Println("======= verifier checks attesatation certification info specifications ========")
-	log.Printf("Certify Firmware Version %d\n", int64(cr.FirmwareVersion))
+
+	fwMajor := uint16(cr.FirmwareVersion >> 48)
+	fwMinor := uint16(cr.FirmwareVersion >> 32)
+	build := uint16(cr.FirmwareVersion >> 16)
+	revision := uint16(cr.FirmwareVersion)
+
+	log.Printf("     Certify Firmware Version  Major %d\n", fwMajor)
+	log.Printf("     Certify Firmware Version  Minor %d\n", fwMinor)
+	log.Printf("     Certify Firmware Version  Build %d\n", build)
+	log.Printf("     Certify Firmware Version  Revision %d\n", revision)
+	log.Printf("     Attestation FirmwareVersion %d\n", cr.FirmwareVersion)
+
 	log.Printf("Certify AK Name %s\n", hex.EncodeToString(cer.Name.Buffer))
 	log.Printf("Certify Extra Data %s\n", string(cr.ExtraData.Buffer))
 

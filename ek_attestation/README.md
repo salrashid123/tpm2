@@ -14,50 +14,63 @@ export TPM2TOOLS_TCTI="swtpm:port=2321"
 
 
 $ go run main.go 
-
-2026/04/17 10:28:07 ======= create ekPublic on Attestor  ========
-2026/04/17 10:28:07 Name 000b3f0a4250b207f11b4362c6db35ce02c6ceba71cc4013117fcab121ee98f202b6
-2026/04/17 10:28:07 RSA EK createPrimary public 
+2026/05/04 06:44:33 ======= create ekPublic on Attestor  ========
+2026/05/04 06:44:33 Name 000b53e7cbbd530a5c015a5dd1fd1b1a6795929a6c3150399577ca3c041111940988
+2026/05/04 06:44:33 RSA EK createPrimary public 
 -----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAlApbI0PRwxG3/g2nOXkM
-pt9Rk5b1+PaJYrpsQsdVd+At9anP0LiEuq3Nyf0E1MIvbYxPrRQFzo+OWeeL3Aqm
-VB61zKzgfKmknIyBDS2S29hOVXjQyPu2mCkSZQ2Pti/0e8JlpVNjZd0YnGqpfvaU
-F28bMDmko4a58KjGqdBt2Z9Djne4CdPHjro+9StW4m4fMy/zETWHzPSqH9Rse2y1
-iL+7ve7sLtXbN3ff10SMjw45+Lkyfwa1r+D2hMDTgHpcvFCGWau9pZIFHVenBEbE
-QV7xfXQd4aMaClWyqPkRRwseV0QxRQltbplTdz28Wb8FfmCR8Eh0F+jnuK5vy8GE
-0QIDAQAB
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtPmTYabu0zFaOBJH7v8e
+g6OsRnqmxGDaJ0kIsaCQ0VDd5iu1ChcJQ4Fij2zuDWCtgaGV4M27MxehE4YDKyiU
+Dll85KACnDmO1mpguG3TBKfA/u1abfJNg2VGwnv4qJl7u7ZEAYFr1nTaQJ4hHIJo
+2z7ndPAOCI6Zbq5557pGlm54qWiwYmHCbfLkPPW8M7SVZwPX201nbMipJ4BOxjgR
+1x8RNFbuRN3wGCrj1ooZubkpVhUU6uTsTMyuF1/L+6XtEomX1UxWoeMJKb6v1rvh
+hH4SUNMBFem/7wag7YwW6ISkvnawC7b8xsr0/KwMAoul9KK6j2w63A2hRu0vUMj4
+kwIDAQAB
 -----END PUBLIC KEY-----
 
-2026/04/17 10:28:07 ======= send the ekPub.PEM to the Verifier ========
-2026/04/17 10:28:07 ======= create a random HMAC key and duplicate it ========
-duplicateTemplate Name 000b46bd301af69ae8d0a23657d3716e2e9065817d19c7cca9ca3a216b1666a619cc
-2026/04/17 10:28:07 ======= verifier sends duplicate key, duplicate seed and duplicate pub to Attestor ========
-2026/04/17 10:28:07 ======= Attestor creates  EK ========
-2026/04/17 10:28:07 ======= Attestor imports the duplicated hmac key ========
-2026/04/17 10:28:07 ======= Attestor creates AK ========
-2026/04/17 10:28:07 Created AK Name :000b2d7732b0f4eac16a730fad18c247a62ac940b8afebad88493f01192d26de6b86
-2026/04/17 10:28:07 AK RSA Key 
+2026/05/04 06:44:33 ======= send the ekPub.PEM to the Verifier ========
+2026/05/04 06:44:33 ======= create a random HMAC key and duplicate it ========
+duplicateTemplate Name 000b9bf0387da7c9c6f492863881ecd1957840bd1f179b6e850c86c9b693aa1e7882
+2026/05/04 06:44:33 ======= verifier sends duplicate key, duplicate seed and duplicate pub to Attestor ========
+2026/05/04 06:44:33 ======= Attestor creates  EK ========
+2026/05/04 06:44:33 ======= Attestor imports the duplicated hmac key ========
+2026/05/04 06:44:33 ======= Attestor creates AK ========
+2026/05/04 06:44:33 Created AK Name :000b77a47fcc7f92f3c25e961ab6b41731b25fedc459a39fb72440e446b6746366e4
+2026/05/04 06:44:33 AK RSA Key 
 -----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAs85JVjtTDGRMgBbw3fLL
-4KiS1zgfHdY2jsJihdHjdPEydUEhsx3AMUouJyKmq+o1gvw8ra4TBkZCDk51WUvl
-XJugki5jyNCig699BLfMOLvGwo5wy+avHDegPYzVpGJ81H4jx4ObElHiJtKbG2Yx
-mB8YWn2RfimHladjjuvWD4w4AZoPFF00z7WFqx3TlQADjR3ZjIX7BH+8pEXWuPC0
-mEO7n43iO/KsDeqy8kxslSQiw6GIJw0jA2NdKH3Sj+iH4cSJPaNwAKqXuKWW/Azi
-yz7Qj/Ul6pC6ygMOXI9vY+LTpJfAARnJ9he4CDROb4hVUhO/F8eqmxYYhasSWyeo
-RQIDAQAB
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAschZiBg27V7ye8t+UxJ2
+rObTW+sxu6Jm0o3eWeaVUSTNkwFpCNYBkcp9Lh8J5ZDCm6Re8zJvgQ9NacGkVKSG
+ZkHM3w1Pw1bJIaAejRTYlnM35kNarFKc/KxJdYZ1AEp06fBL8FBCRUTdu5tc7z2W
+KdUnKmcKuAQW5c2b+4u7VxC68Jmv57D7Zn2zHVmYvViXySfNkFmjR3ZCP6SRUXq8
+ZFybyHSPujR5cWQbp8UdEpwmRA7Go6Y7bAn4pGJjv1U3Q1e09jnIn+DMoyeQ1NQc
+R9C0C5jcmwKJmzfG258hJeU+h3qITbxfniAq8AUHH0PbbaqSGjhObqIz3f52qIa+
+OQIDAQAB
 -----END PUBLIC KEY-----
 
-2026/04/17 10:28:07 ======= Attestor certifies ak with the duplicated key ========
-2026/04/17 10:28:07 ======= Attestor sends attestation signature,attestation and the AK RSA Public key (akPubPEM) to Verifier ========
-2026/04/17 10:28:07 Certify Response digest M4qEUUdA2ny8SoZqoTvhEVSQCAHFQiArOzuaIVWjtnA=
-2026/04/17 10:28:07 ======= verifier checks attesatation certification info specifications ========
-2026/04/17 10:28:07 Certify Firmware Version 2315977366801874944
-2026/04/17 10:28:07 Certify AK Name 000b2d7732b0f4eac16a730fad18c247a62ac940b8afebad88493f01192d26de6b86
-2026/04/17 10:28:07 Certify Extra Data 
-2026/04/17 10:28:07 Derived Name from rsa PublicKey 000b2d7732b0f4eac16a730fad18c247a62ac940b8afebad88493f01192d26de6b86
-2026/04/17 10:28:07 Attesation names match
-2026/04/17 10:28:07 ======= Attestor verifies the HMAC signature of the attesation certification info  ========
-2026/04/17 10:28:07 calculated hmac of attestation using local hmac key M4qEUUdA2ny8SoZqoTvhEVSQCAHFQiArOzuaIVWjtnA=
-2026/04/17 10:28:07 attestation verified
+2026/05/04 06:44:33 ======= Attestor certifies ak with the duplicated key ========
+2026/05/04 06:44:33 ======= Attestor sends attestation signature,attestation and the AK RSA Public key (akPubPEM) to Verifier ========
+2026/05/04 06:44:33 Certify Response digest 0CfGkjpJhCCB5ALz6SVhy440VP/d9em5xZz3qx93pTE=
+2026/05/04 06:44:33 ======= verifier checks attesatation certification info specifications ========
+2026/05/04 06:44:33      Certify Firmware Version  Major 8228
+2026/05/04 06:44:33      Certify Firmware Version  Minor 293
+2026/05/04 06:44:33      Certify Firmware Version  Build 18
+2026/05/04 06:44:33      Certify Firmware Version  Revision 0
+2026/05/04 06:44:33      Attestation FirmwareVersion 2315977366801874944
+2026/05/04 06:44:33 Certify AK Name 000b77a47fcc7f92f3c25e961ab6b41731b25fedc459a39fb72440e446b6746366e4
+2026/05/04 06:44:33 Certify Extra Data 
+2026/05/04 06:44:33 Derived Name from rsa PublicKey 000b77a47fcc7f92f3c25e961ab6b41731b25fedc459a39fb72440e446b6746366e4
+2026/05/04 06:44:33 Attesation names match
+2026/05/04 06:44:33 ======= Attestor verifies the HMAC signature of the attesation certification info  ========
+2026/05/04 06:44:33 calculated hmac of attestation using local hmac key 0CfGkjpJhCCB5ALz6SVhy440VP/d9em5xZz3qx93pTE=
+2026/05/04 06:44:33 attestation verified
 
 ```
+
+```bash
+$ tpm2_getcap  properties-fixed
+
+TPM2_PT_FIRMWARE_VERSION_1:
+  raw: 0x20240125             // bigendian  major 8228  minor 293
+TPM2_PT_FIRMWARE_VERSION_2:
+  raw: 0x120000
+```
+
