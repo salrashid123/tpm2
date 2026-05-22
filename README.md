@@ -16,6 +16,14 @@ Also shown equivalent use of `go-tpm` library set.
 * [Go-TPM-Wrapping - Go library for encrypting data using Trusted Platform Module (TPM)](https://github.com/salrashid123/go-tpm-wrapping)
 * [Transferring RSA and Symmetric keys with GCP vTPMs](https://github.com/salrashid123/gcp_tpm_sealed_keys)
 
+### Key Import
+
+* [tpmimport: Import external key to TPM](https://github.com/salrashid123/tpmimport)
+
+### Key Generation
+
+* [tpm2 key utility generate a new key on TPM](https://github.com/salrashid123/tpm2genkey)
+
 ### go library
 
 * [TPM backed crypto/rand Reader](https://github.com/salrashid123/tpmrand)
