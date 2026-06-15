@@ -163,6 +163,10 @@ Update 8/28/21:  Added a gRPC client/server that does full remote attestation, q
 
 - `policy_gen`: Extract and use the raw low-level policy command parameters
 
+- `policy_syntax_complex`: End-to-End example of policysyntax based key generation and use
+
+- `post_quantum_cryptography`:  Experimental examples of post quantum cryptography with TPM.
+
 - `mTLS`:  mTLS using `go-tpm` and nginx
 
 - `ima_policy`:  Sample 'helloworld' configuration of IMA.

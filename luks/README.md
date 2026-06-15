@@ -51,3 +51,8 @@ $ mount /dev/mapper/vault_encrypted_volume /mnt/disks/luks/
 ```
 
 See the link above to seal to PCR value on boot and then extend the binding PCR value (to prevent a user (root) from subsequently accessing the secret at runtime)
+
+
+
+systemd-pcrlock
+https://github.com/google/go-tpm/issues/437
