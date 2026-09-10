@@ -1,365 +1,308 @@
+## TPM Remote Attestation, Quote/Verify, NewKey Certification with TPM2_Direct
 
-see 
+
+Simple flow which demosntrates several protocols using go-tpm Direct API
+
+Also see 
 
 - [TPM Remote Attestation protocol using go-tpm and gRPC](https://github.com/salrashid123/go_tpm_remote_attestation)
 
 
-using my raspberry pi which does _not_ have an eventlog
-
-## on Raspberry PI
+#### Start Simulator
 
 ```bash
-go run src/grpc_attestor.go --grpcport :50051 \
- --unsealPcrs=23 \
- --caCertTLS certs/CA_crt.pem \
- --servercert certs/attestor_crt.pem \
- --serverkey certs/attestor_key.pem \
-  -useFullAttestation --readEventLog=false \
-  --platformCertFile certs/platform_cert.der \
-  --v=10 -alsologtostderr
+export TPM2TOOLS_TCTI="swtpm:port=2321"
+
+rm -rf /tmp/myvtpm && mkdir /tmp/myvtpm && swtpm_setup --tpmstate /tmp/myvtpm --tpm2 --ecc  --create-ek-cert && swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear --log level=5
+
+
+tpm2_getekcertificate -X -o ECcert.bin
+
+openssl x509 -in ECcert.bin -inform DER -noout -text
 ```
 
-note, `--readEventLog=false` as i dont' have an eventlog on the pi
-
-aslo assume tpm pcr 0, 23 is
-```bash
-tpm2_pcrread  sha1:0+sha256:23
-  sha1:
-    0 : 0x0000000000000000000000000000000000000000
-  sha256:
-    23: 0x0000000000000000000000000000000000000000000000000000000000000000
-```
-
-
-## on local
-
-
-note
-
+#### QuickStart
 
 ```bash
-go run src/grpc_verifier.go --importMode=AES  --uid 369c327d-ad1f-401c-aa91-d9b0e69bft67 --readEventLog \
-   -aes256Key "G-KaPdSgUkXp2s5v8y/B?E(H+MbQeThW" \
-   --host 108.56.239.251:50051 \
-   --expectedPCRMapSHA256 23:0000000000000000000000000000000000000000000000000000000000000000 \
-   --expectedPCRMapSHA1 0:0000000000000000000000000000000000000000 \
-   --caCertTLS certs/CA_crt.pem --caCertIssuer certs/CA_crt.pem --caKeyIssuer certs/CA_key.pem --platformCA certs/CA_crt.pem \
-   --readEventLog=false \
-   --v=10 -alsologtostderr 
+export TPM2TOOLS_TCTI="swtpm:port=2321"
+go run get_ek/main.go  -ekCertFile=output/ek.cert -ekPubFile=output/ekpub.pem -tpm-path=127.0.0.1:2321
+
+go run get_ak/main.go -akKeyFile=output/ak.pem -akPubFile=output/akpub.pem -tpm-path=127.0.0.1:2321
+
+go run make_credential/main.go -akPubFile output/akpub.pem \
+   -credentialBlobFile output/credentialblob.bin -ekPubFile output/ekpub.pem \
+    -encryptedSecret output/encryptedSecret.bin -secret somerandomsecret
+
+go run activate_credential/main.go  -akKeyFile output/ak.pem \
+   -credentialBlobFile output/credentialblob.bin \
+   -encryptedSecret output/encryptedSecret.bin -tpm-path 127.0.0.1:2321
+
+go run quote/main.go -akKeyFile output/ak.pem -pcr 23 \
+   -quotedFile output/quoted.bin -quotedSignatureFile output/quotedsignature.bin \
+   -secret "meet me at..." -tpm-path "127.0.0.1:2321"
+
+go run quote_verify/main.go -akPubFile output/akpub.pem \
+   -ekPubFile output/ekpub.pem -pcr 23 -quotedFile output/quoted.bin \
+   -quotedSignatureFile output/quotedsignature.bin -secret "meet me at..."
+
+go run make_key/main.go  -akKeyFile output/ak.pem \
+   -akPubFile output/akpub.pem -newKeyFile output/nk.pem \
+   -tpm-path "127.0.0.1:2321"
+
+go run verify_key/main.go -akPubFile output/akpub.pem -ekPubFile "output/ekpub.pem" \
+   -certificationSignature output/certifysignature.bin \
+   -certifyInfoFile output/certify.bin -secret "meet me at..." 
 ```
 
-in the logs below, note that we're talking with a 'real' tpm (note i dont' have eventlog/secure boot checks on)
+### Get EndorsementKey
 
-```log
-I0521 11:22:57.836198   51396 grpc_verifier.go:237] =============== GetEKCert Returned from remote ===============
-I0521 11:22:57.836332   51396 grpc_verifier.go:257]      EKCert Encryption Issuer x509 
+Extracts and writes the EK x509, endorsementPublic key PEM 
 
-CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 041,OU=OPTIGA(TM),O=Infineon Technologies AG,C=DE  <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
-I0521 11:22:57.836390   51396 grpc_verifier.go:258]      EKCert Encryption SerialNumber 
-145633230
-
-I0521 11:22:57.836410   51396 grpc_verifier.go:260]     EkCert Public Key 
------BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0AGTl6+cUrY3gGV4ou/b
-tsHYIhfPYtBHxofy8jgIY1R/MMBI36CLbx3oxGwQYcRnOJ//n0jd6JKHunhC9xH+
-ERXll8lKaNg+aY+VjXGQuRgySlh4DGR7nAHe0VhU5iD/gBgExEAJiP/gzrvPtZJm
-GmeBq+YqQtDBgEOanV0T0hfcXzljRtptQ24laDmpwxzIMsHtPCYADMzkbWjKRuWr
-4+h5PwpQmmf29qcB4yhr5nmD8hDaPf9jysbP3ti7xpRO2LhV+Uuhyd2uBEyn+T3t
-9+i8GI9ONsu5Sb3iIPQ20sYh9nKihsUq3x8Xb7cJE8qTBpvPmv9L6TZ5y3csiKey
-AwIDAQAB
------END PUBLIC KEY-----
-
-I0521 11:22:57.845549   51396 grpc_verifier.go:273]      Read (eK) from request with name: 000b685ffa7d67b7cae1d0cc6697b4aa6f574400e8575e7d0a56b25b0899912c0f10
-I0521 11:22:57.845586   51396 grpc_verifier.go:276]      EK Default parameter match template
-```
-
----
+```bash
+go run get_ek/main.go  -ekCertFile=output/ek.cert -ekPubFile=output/ekpub.pem -tpm-path=127.0.0.1:2321
 
 
-#### TPM
-
-- `attestor`
-
-```log
-go run src/grpc_attestor.go --grpcport :50051 \
-  --unsealPcrs=23 \
-  --caCertTLS certs/CA_crt.pem \
-  --servercert certs/attestor_crt.pem \
-  --serverkey certs/attestor_key.pem \
-   -useFullAttestation --readEventLog=false \
-   --platformCertFile certs/platform_cert.der \
-   --v=10 -alsologtostderr
-
-I0521 11:22:55.719621    8530 grpc_attestor.go:1364] Starting gRPC server on port :50051
-I0521 11:22:57.743900    8530 grpc_attestor.go:133] >> inbound request
-I0521 11:22:57.744030    8530 grpc_attestor.go:156] HealthCheck called for Service [verifier.VerifierServer]
-I0521 11:22:57.752019    8530 grpc_attestor.go:133] >> inbound request
-I0521 11:22:57.752161    8530 grpc_attestor.go:170] ======= GetPlatformCert ========
-I0521 11:22:57.752238    8530 grpc_attestor.go:171]      client provided uid: 369c327d-ad1f-401c-aa91-d9b0e69bft67
-I0521 11:22:57.752607    8530 grpc_attestor.go:189]      Returning GetPlatformCert ========
-I0521 11:22:57.758738    8530 grpc_attestor.go:133] >> inbound request
-I0521 11:22:57.759505    8530 grpc_attestor.go:288] ======= GetEKCert ========
-I0521 11:22:57.760080    8530 grpc_attestor.go:289]      client provided uid: 369c327d-ad1f-401c-aa91-d9b0e69bft67
-I0521 11:22:57.760636    8530 grpc_attestor.go:295] =============== Load EncryptionKey and Certifcate from NV ===============
-I0521 11:22:57.778972    8530 grpc_attestor.go:314]      Encryption PEM 
------BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0AGTl6+cUrY3gGV4ou/b
-tsHYIhfPYtBHxofy8jgIY1R/MMBI36CLbx3oxGwQYcRnOJ//n0jd6JKHunhC9xH+
-ERXll8lKaNg+aY+VjXGQuRgySlh4DGR7nAHe0VhU5iD/gBgExEAJiP/gzrvPtZJm
-GmeBq+YqQtDBgEOanV0T0hfcXzljRtptQ24laDmpwxzIMsHtPCYADMzkbWjKRuWr
-4+h5PwpQmmf29qcB4yhr5nmD8hDaPf9jysbP3ti7xpRO2LhV+Uuhyd2uBEyn+T3t
-9+i8GI9ONsu5Sb3iIPQ20sYh9nKihsUq3x8Xb7cJE8qTBpvPmv9L6TZ5y3csiKey
-AwIDAQAB
------END PUBLIC KEY-----
-I0521 11:22:57.820904    8530 grpc_attestor.go:343]      Encryption Issuer x509 Infineon OPTIGA(TM) TPM 2.0 RSA CA 041
-I0521 11:22:57.822011    8530 grpc_attestor.go:345]      Returning GetEKCert
-I0521 11:22:57.849677    8530 grpc_attestor.go:133] >> inbound request
-I0521 11:22:57.850605    8530 grpc_attestor.go:354] ======= GetAK ========
-I0521 11:22:57.851272    8530 grpc_attestor.go:355]      client provided uid: 369c327d-ad1f-401c-aa91-d9b0e69bft67
-I0521 11:22:57.858770    8530 grpc_attestor.go:363]      PCR [23] Value 0000000000000000000000000000000000000000000000000000000000000000 
-I0521 11:22:57.859708    8530 grpc_attestor.go:369]      createPrimary
-I0521 11:22:57.917670    8530 grpc_attestor.go:393]      tpmEkPub: 
-&{26258344850482389995546679172575636402193028340520893155145236190500463014824865479293565484614784202502524006732513713124645735078275222022457884968518805107326288342532662422964585429640711965550033187266222025106831505030854385176555233600566379437531904132578368808622946244500365740299315181875719150164848065165183667412410331662072320320629064063629823328709988055152624021769547469270163850177507599551730998728782183708686007017082227488261094874575127666139779770260660891500341647964363815523537990482511241166752623861605975930181662598934683897117411649300113664026950039122189350992277206109673058972163 65537}
-I0521 11:22:57.919936    8530 grpc_attestor.go:406]      ekPub Name: 000b685ffa7d67b7cae1d0cc6697b4aa6f574400e8575e7d0a56b25b0899912c0f10
-I0521 11:22:57.920965    8530 grpc_attestor.go:407]      ekPubPEM: 
------BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0AGTl6+cUrY3gGV4ou/b
-tsHYIhfPYtBHxofy8jgIY1R/MMBI36CLbx3oxGwQYcRnOJ//n0jd6JKHunhC9xH+
-ERXll8lKaNg+aY+VjXGQuRgySlh4DGR7nAHe0VhU5iD/gBgExEAJiP/gzrvPtZJm
-GmeBq+YqQtDBgEOanV0T0hfcXzljRtptQ24laDmpwxzIMsHtPCYADMzkbWjKRuWr
-4+h5PwpQmmf29qcB4yhr5nmD8hDaPf9jysbP3ti7xpRO2LhV+Uuhyd2uBEyn+T3t
-9+i8GI9ONsu5Sb3iIPQ20sYh9nKihsUq3x8Xb7cJE8qTBpvPmv9L6TZ5y3csiKey
-AwIDAQAB
------END PUBLIC KEY-----
-I0521 11:22:57.926912    8530 grpc_attestor.go:421]      CreateKeyUsingAuth
-I0521 11:22:58.471471    8530 grpc_attestor.go:472]      ContextSave (ek)
-I0521 11:22:58.511522    8530 grpc_attestor.go:485]      ContextLoad (ek)
-I0521 11:22:58.544856    8530 grpc_attestor.go:498]      LoadUsingAuth
-I0521 11:22:58.592186    8530 grpc_attestor.go:535]      AK keyName 0022000bc9edb050142e3fa7ea11f51bfcaf8daf4e0764e634eb4ae1d9dab27b3eb66208
-I0521 11:22:58.598772    8530 grpc_attestor.go:560]      akPubPEM: 
------BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmXsFwbMCnsVcowOkc54g
-lPMKo747b/+w5eplGVF5JKIl5i2pCXvJCp0RHb/T2nMnQO7LFle4ukVGQy2obIZd
-dFdjkKzn8rprqc0JRxLG+c3C0yDBEZhEKQ8CPqK3hVGe773BNekNlHugXQ9/XYJR
-bKDv1TkUT0QfoYrkl50iZvbDu4ltGufLg6VIUIUrw84EefUzh2RI89a4duBJJZzp
-Z6XJ/woBH/x7OuUT6ZnoUdFCVLClALfsMDZtQ/4SNLOXUWAnzlCfXbis8OtMYbPx
-HrPVNTiYWAaFJ/LIUmctqt1UwxJ6iEeNQ1rtQt3gxFrE35UGX0wCe+WY1qZXnHhE
-CQIDAQAB
------END PUBLIC KEY-----
-I0521 11:22:58.599148    8530 grpc_attestor.go:562]      Write (akPub) ========
-I0521 11:22:58.600221    8530 grpc_attestor.go:568]      Write (akPriv) ========
-I0521 11:22:58.601125    8530 grpc_attestor.go:580]      Returning GetAK ========
-I0521 11:22:58.659741    8530 grpc_attestor.go:133] >> inbound request
-I0521 11:22:58.659858    8530 grpc_attestor.go:592] ======= ActivateCredential ========
-I0521 11:22:58.659929    8530 grpc_attestor.go:593]      client provided uid: 369c327d-ad1f-401c-aa91-d9b0e69bft67
-I0521 11:22:58.660003    8530 grpc_attestor.go:595]      ContextLoad (ek)
-I0521 11:22:58.691953    8530 grpc_attestor.go:608]      Read (akPub)
-I0521 11:22:58.692306    8530 grpc_attestor.go:614]      Read (akPriv)
-I0521 11:22:58.734143    8530 grpc_attestor.go:656]      keyName 0022000bc9edb050142e3fa7ea11f51bfcaf8daf4e0764e634eb4ae1d9dab27b3eb66208
-I0521 11:22:58.734356    8530 grpc_attestor.go:658]      ActivateCredentialUsingAuth
-I0521 11:22:58.984795    8530 grpc_attestor.go:711]      <--  activateCredential()
-I0521 11:22:59.010354    8530 grpc_attestor.go:133] >> inbound request
-I0521 11:22:59.011265    8530 grpc_attestor.go:721] ======= Quote ========
-I0521 11:22:59.011913    8530 grpc_attestor.go:722]      client provided uid: 369c327d-ad1f-401c-aa91-d9b0e69bft67
-I0521 11:22:59.018120    8530 grpc_attestor.go:730]      PCR [23] Value 0000000000000000000000000000000000000000000000000000000000000000 
-I0521 11:22:59.018255    8530 grpc_attestor.go:736]      ContextLoad (ek) ========
-I0521 11:22:59.049870    8530 grpc_attestor.go:748]      LoadUsingAuth ========
-I0521 11:22:59.060741    8530 grpc_attestor.go:772]      Read (akPub) ========
-I0521 11:22:59.061042    8530 grpc_attestor.go:778]      Read (akPriv) ========
-I0521 11:22:59.088554    8530 grpc_attestor.go:792]      AK keyName 0022000bc9edb050142e3fa7ea11f51bfcaf8daf4e0764e634eb4ae1d9dab27b3eb66208
-I0521 11:22:59.278940    8530 grpc_attestor.go:811]      <-- End Quote
-I0521 11:22:59.358261    8530 grpc_attestor.go:133] >> inbound request
-I0521 11:22:59.358457    8530 grpc_attestor.go:823] ======= PushSecret ========
-I0521 11:22:59.358569    8530 grpc_attestor.go:824]      client provided uid: 369c327d-ad1f-401c-aa91-d9b0e69bft67
-I0521 11:22:59.358727    8530 grpc_attestor.go:827]      Loading EndorsementKeyRSA
-I0521 11:22:59.372001    8530 grpc_attestor.go:844]      Importing External Key
-I0521 11:22:59.696473    8530 grpc_attestor.go:850]      <-- End importKey()
-I0521 11:22:59.696716    8530 grpc_attestor.go:854]      Hash of imported Key bZeQ9G0KuKpHVwfZuobcMf7tL/ViU1maVaJCAY+QjfU=
-I0521 11:22:59.760877    8530 grpc_attestor.go:133] >> inbound request
-I0521 11:22:59.761000    8530 grpc_attestor.go:943] ======= PullRSAKey ========
-I0521 11:22:59.761074    8530 grpc_attestor.go:944]      client provided uid: 369c327d-ad1f-401c-aa91-d9b0e69bft67
-I0521 11:22:59.761151    8530 grpc_attestor.go:946] ======= Generate UnrestrictedKey ========
-I0521 11:22:59.761222    8530 grpc_attestor.go:948]      ContextLoad (ek) ========
-I0521 11:22:59.793078    8530 grpc_attestor.go:961]      Loading AttestationKey
-I0521 11:22:59.831493    8530 grpc_attestor.go:1002]      AK keyName: ACIAC8ntsFAULj+n6hH1G/yvja9OB2TmNOtK4dnasns+tmII,
-I0521 11:22:59.835369    8530 grpc_attestor.go:1029]      akPub PEM 
------BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmXsFwbMCnsVcowOkc54g
-lPMKo747b/+w5eplGVF5JKIl5i2pCXvJCp0RHb/T2nMnQO7LFle4ukVGQy2obIZd
-dFdjkKzn8rprqc0JRxLG+c3C0yDBEZhEKQ8CPqK3hVGe773BNekNlHugXQ9/XYJR
-bKDv1TkUT0QfoYrkl50iZvbDu4ltGufLg6VIUIUrw84EefUzh2RI89a4duBJJZzp
-Z6XJ/woBH/x7OuUT6ZnoUdFCVLClALfsMDZtQ/4SNLOXUWAnzlCfXbis8OtMYbPx
-HrPVNTiYWAaFJ/LIUmctqt1UwxJ6iEeNQ1rtQt3gxFrE35UGX0wCe+WY1qZXnHhE
-CQIDAQAB
------END PUBLIC KEY-----
-I0521 11:22:59.835663    8530 grpc_attestor.go:1033]      ======= CreateKeyUsingAuthUnrestricted ========
-I0521 11:22:59.851439    8530 grpc_attestor.go:1066]      PCR [23] Value 0000000000000000000000000000000000000000000000000000000000000000 
-I0521 11:23:00.371909    8530 grpc_attestor.go:1084]      Write (ukPub) ========
-I0521 11:23:00.373000    8530 grpc_attestor.go:1090]      Write (ukPriv) ========
-I0521 11:23:00.415382    8530 grpc_attestor.go:1153]      uakPub PEM 
------BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvE42BY3yu/ogci+1PIAG
-4P39tkIyOGInFOMKJ680Csth/bcB/UXfXRq4OPVudWukwy1GwYLx2IM/l5F3BQW9
-zbloW69S504l4KoRJ5OxV+Ztf91JfRo8UkffNPvpyXgJU1ZFBrqs5XVRno8LFCEU
-yi89MBb6DaCbEgE2/qcf4zHs4BNle0VREz+Ag7Ph8MAhNfrethbSDt1T8X+N/aeg
-A/+Gd48Hzw00E/uV1ypGryrd8kUumrgt4zbt5OiRDoSsUirQQwnQP55DOus7eBME
-3vjXXmMY0bth8PaJERmABwEbcCtG1AK83z8XTytNu+9xOFW3seLth1BVMKQh4vPe
-lwIDAQAB
------END PUBLIC KEY-----
-I0521 11:23:00.609671    8530 grpc_attestor.go:1169]      Data to sign: 369c327d-ad1f-401c-aa91-d9b0e69bft67
-I0521 11:23:00.820709    8530 grpc_attestor.go:1185]      Test Signature:  hLZQPjLCzWBXlhDSraZQSz3TjBBl52OykCRnCSR3oj2Q22l6F9TD8ajvkZcfRrcTBhPisPSfRPx9M31LfbxwXlfjlVChwkncPjtH7fVwWtnH4fhBRY9AUkRsUzwflm4n3YZ9KGIG++BZRGhIBaCdA/+mIVwKPjM6ri2isxHuOGw34XoHMI195iCplU6LX4Cas3P1T3XRkwILsckSJKUXVooh37fQ3VhgT1hdxeDQDoIGaWH/qlkqfFvg5SpqH9vvKI6cC3WnwiVLecG+Ja2xRFwR3Kb33zVR20oKTgt0RXMITDEWAP/CcYjIlFR5rpnZ9frkfUdw8+UIDwfU+6jc2g
-I0521 11:23:00.821462    8530 grpc_attestor.go:1237]      Decoding PublicKey for AK ========
-I0521 11:23:00.825371    8530 grpc_attestor.go:1266]      Signature Verified
-I0521 11:23:00.825766    8530 grpc_attestor.go:1281]      Returning PullRSAKeyResponse
-```
-
-- `verifier`
-
-```log
-go run src/grpc_verifier.go --importMode=AES  --uid 369c327d-ad1f-401c-aa91-d9b0e69bft67 --readEventLog \
-   -aes256Key "G-KaPdSgUkXp2s5v8y/B?E(H+MbQeThW" \
-   --host 108.56.239.251:50051 \
-   --expectedPCRMapSHA256 23:0000000000000000000000000000000000000000000000000000000000000000 \
-   --expectedPCRMapSHA1 0:0000000000000000000000000000000000000000 \
-   --caCertTLS certs/CA_crt.pem --caCertIssuer certs/CA_crt.pem --caKeyIssuer certs/CA_key.pem --platformCA certs/CA_crt.pem \
-   --readEventLog=false \
-   --v=10 -alsologtostderr 
-
-I0521 11:22:57.749520   51396 grpc_verifier.go:169] RPC HealthChekStatus:SERVING
-I0521 11:22:57.750217   51396 grpc_verifier.go:173] =============== GetPlatformCert ===============
-I0521 11:22:57.756280   51396 grpc_verifier.go:182] =============== GetPlatformCert Returned from remote ===============
-I0521 11:22:57.756326   51396 grpc_verifier.go:183]      client provided uid: 369c327d-ad1f-401c-aa91-d9b0e69bft67
-I0521 11:22:57.757268   51396 grpc_verifier.go:214]  Verified Platform cert signed by privacyCA
-I0521 11:22:57.757316   51396 grpc_verifier.go:219]  Platform Cert's Holder SerialNumber 1b001fe40bf96774751a72e9f5de5333d6b62
-I0521 11:22:57.836198   51396 grpc_verifier.go:237] =============== GetEKCert Returned from remote ===============
-I0521 11:22:57.836332   51396 grpc_verifier.go:257]      EKCert Encryption Issuer x509 
-CN=Infineon OPTIGA(TM) TPM 2.0 RSA CA 041,OU=OPTIGA(TM),O=Infineon Technologies AG,C=DE
-I0521 11:22:57.836390   51396 grpc_verifier.go:258]      EKCert Encryption SerialNumber 
-145633230
-I0521 11:22:57.836410   51396 grpc_verifier.go:260]     EkCert Public Key 
------BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0AGTl6+cUrY3gGV4ou/b
-tsHYIhfPYtBHxofy8jgIY1R/MMBI36CLbx3oxGwQYcRnOJ//n0jd6JKHunhC9xH+
-ERXll8lKaNg+aY+VjXGQuRgySlh4DGR7nAHe0VhU5iD/gBgExEAJiP/gzrvPtZJm
-GmeBq+YqQtDBgEOanV0T0hfcXzljRtptQ24laDmpwxzIMsHtPCYADMzkbWjKRuWr
-4+h5PwpQmmf29qcB4yhr5nmD8hDaPf9jysbP3ti7xpRO2LhV+Uuhyd2uBEyn+T3t
-9+i8GI9ONsu5Sb3iIPQ20sYh9nKihsUq3x8Xb7cJE8qTBpvPmv9L6TZ5y3csiKey
-AwIDAQAB
------END PUBLIC KEY-----
-
-I0521 11:22:57.845549   51396 grpc_verifier.go:273]      Read (eK) from request with name: 000b685ffa7d67b7cae1d0cc6697b4aa6f574400e8575e7d0a56b25b0899912c0f10
-I0521 11:22:57.845586   51396 grpc_verifier.go:276]      EK Default parameter match template
-I0521 11:22:57.845596   51396 grpc_verifier.go:283] =============== GetAKCert ===============
-I0521 11:22:58.622390   51396 grpc_verifier.go:295] =============== MakeCredential ===============
-I0521 11:22:58.622498   51396 grpc_verifier.go:317]      Decoded EkPublic Key: 
------BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0AGTl6+cUrY3gGV4ou/b
-tsHYIhfPYtBHxofy8jgIY1R/MMBI36CLbx3oxGwQYcRnOJ//n0jd6JKHunhC9xH+
-ERXll8lKaNg+aY+VjXGQuRgySlh4DGR7nAHe0VhU5iD/gBgExEAJiP/gzrvPtZJm
-GmeBq+YqQtDBgEOanV0T0hfcXzljRtptQ24laDmpwxzIMsHtPCYADMzkbWjKRuWr
-4+h5PwpQmmf29qcB4yhr5nmD8hDaPf9jysbP3ti7xpRO2LhV+Uuhyd2uBEyn+T3t
-9+i8GI9ONsu5Sb3iIPQ20sYh9nKihsUq3x8Xb7cJE8qTBpvPmv9L6TZ5y3csiKey
-AwIDAQAB
------END PUBLIC KEY-----
-I0521 11:22:58.631764   51396 grpc_verifier.go:345]      Decoded AkPub: 
------BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmXsFwbMCnsVcowOkc54g
-lPMKo747b/+w5eplGVF5JKIl5i2pCXvJCp0RHb/T2nMnQO7LFle4ukVGQy2obIZd
-dFdjkKzn8rprqc0JRxLG+c3C0yDBEZhEKQ8CPqK3hVGe773BNekNlHugXQ9/XYJR
-bKDv1TkUT0QfoYrkl50iZvbDu4ltGufLg6VIUIUrw84EefUzh2RI89a4duBJJZzp
-Z6XJ/woBH/x7OuUT6ZnoUdFCVLClALfsMDZtQ/4SNLOXUWAnzlCfXbis8OtMYbPx
-HrPVNTiYWAaFJ/LIUmctqt1UwxJ6iEeNQ1rtQt3gxFrE35UGX0wCe+WY1qZXnHhE
-CQIDAQAB
------END PUBLIC KEY-----
-I0521 11:22:58.631820   51396 grpc_verifier.go:348]      AK Default parameter match template
-I0521 11:22:58.640610   51396 grpc_verifier.go:357]      Loaded AK KeyName 000bc9edb050142e3fa7ea11f51bfcaf8daf4e0764e634eb4ae1d9dab27b3eb66208
-I0521 11:22:58.640664   51396 grpc_verifier.go:359]      MakeCredential Start
-I0521 11:22:58.640696   51396 grpc_verifier.go:365]      Sending Nonce: DGImmgcFrrxVaduLspmhiXrIgJDVaiFB
-I0521 11:22:58.658215   51396 grpc_verifier.go:370]      <-- End makeCredential()
-I0521 11:22:58.658261   51396 grpc_verifier.go:375] =============== ActivateCredential ===============
-I0521 11:22:59.008145   51396 grpc_verifier.go:386]      Returned Secret: DGImmgcFrrxVaduLspmhiXrIgJDVaiFB
-I0521 11:22:59.008241   51396 grpc_verifier.go:392]      AK Verification Complete
-I0521 11:22:59.008311   51396 grpc_verifier.go:398]      Sending Quote with Nonce: UwHwbgVfnompvrbVpgefaOuzIJOONPnC
-I0521 11:22:59.008389   51396 grpc_verifier.go:450] =============== Quote/Verify ===============
-I0521 11:22:59.349988   51396 grpc_verifier.go:472]      Attestation ExtraData (nonce): UwHwbgVfnompvrbVpgefaOuzIJOONPnC 
-I0521 11:22:59.350100   51396 grpc_verifier.go:473]      Attestation PCR#: [23] 
-I0521 11:22:59.350207   51396 grpc_verifier.go:474]      Attestation Hash: 66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925 
-I0521 11:22:59.350304   51396 grpc_verifier.go:489]      sha256 of Expected PCR Value: --> 66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925
-I0521 11:22:59.350400   51396 grpc_verifier.go:495]      Decoding PublicKey for AK ========
-I0521 11:22:59.350755   51396 grpc_verifier.go:509]      Quote/Verify nonce Verified 
-I0521 11:22:59.350849   51396 grpc_verifier.go:543]      <-- End verifyQuote()
-I0521 11:22:59.350940   51396 grpc_verifier.go:545] =============== PushSecret ===============
-I0521 11:22:59.351030   51396 grpc_verifier.go:551]      Generate Test Certificate for AK 
-I0521 11:22:59.351137   51396 grpc_verifier.go:563]      Issuing certificate with serialNumber 383820
-I0521 11:22:59.356225   51396 grpc_verifier.go:621]      X509 issued by Verifier for Ak: 
+2026/09/10 10:13:47 ======= Init  ========
+2026/09/10 10:13:47 ======= Read NV for EKCert ========
+2026/09/10 10:13:47 Name: 000bc406c8d25564a5fbb3b61089133cb52df7c840b4c56d74eb703060c545ce73f6
+2026/09/10 10:13:47 Size: 1017
+2026/09/10 10:13:47 TPM Max NV buffer 1024
 -----BEGIN CERTIFICATE-----
-MIID0DCCArigAwIBAgIDBdtMMA0GCSqGSIb3DQEBCwUAMFcxCzAJBgNVBAYTAlVT
-MQ8wDQYDVQQKDAZHb29nbGUxEzARBgNVBAsMCkVudGVycHJpc2UxIjAgBgNVBAMM
-GUVudGVycHJpc2UgU3Vib3JkaW5hdGUgQ0EwHhcNMjMwNTIxMTUyMjU5WhcNMjMw
-NTIyMTUyMjU5WjCBgjELMAkGA1UEBhMCVVMxEzARBgNVBAgTCkNhbGlmb3JuaWEx
-FjAUBgNVBAcTDU1vdW50YWluIFZpZXcxEDAOBgNVBAoTB0FjbWUgQ28xEzARBgNV
-BAsTCkVudGVycHJpc2UxHzAdBgNVBAMTFnZlcmlmeS5lc29kZW1vYXBwMi5jb20w
-ggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCZewXBswKexVyjA6RzniCU
-8wqjvjtv/7Dl6mUZUXkkoiXmLakJe8kKnREdv9PacydA7ssWV7i6RUZDLahshl10
-V2OQrOfyumupzQlHEsb5zcLTIMERmEQpDwI+oreFUZ7vvcE16Q2Ue6BdD39dglFs
-oO/VORRPRB+hiuSXnSJm9sO7iW0a58uDpUhQhSvDzgR59TOHZEjz1rh24EklnOln
-pcn/CgEf/Hs65RPpmehR0UJUsKUAt+wwNm1D/hI0s5dRYCfOUJ9duKzw60xhs/Ee
-s9U1OJhYBoUn8shSZy2q3VTDEnqIR41DWu1C3eDEWsTflQZfTAJ75ZjWpleceEQJ
-AgMBAAGjeTB3MA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcDAzAM
-BgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFLe6sAKh5740xsEFXGZ45btTXaFUMCEG
-A1UdEQQaMBiCFnZlcmlmeS5lc29kZW1vYXBwMi5jb20wDQYJKoZIhvcNAQELBQAD
-ggEBAHlQIPsoy8AzlLVKsYcmLIEHIMcr+MXHUpqxbZGLm6buh9LhibQzEi6DBXO0
-hm3oSU9eZUKkjByFFaJzChbj+pR9ZofOaTgcIIIAGHLkBPCuEu3vgtvLpGC5gmCg
-jyKSNxXrERq9THi/Yt0PD0GY5yOiXpIZipA8B8sV3vOaNCVKo5vaKdCdVXOrpYPI
-0JyrTx5voyQijUFaX+VxYMKUlJeMT8EqZOZLbpaNK5LhXnCYQrc1LeVmVLqVIfRd
-1iguWWv1cWBo7eXVF33B5C1BJQAK8kR8OfOLJQSKj1DpdpA33rPnHb0A41I+icSz
-3W3V3dfcf3ImPyM9xXewJ8pJ23M=
+MIID9TCCAl2gAwIBAgICCWUwDQYJKoZIhvcNAQELBQAwGDEWMBQGA1UEAxMNc3d0
+cG0tbG9jYWxjYTAgFw0yNjA5MTAxNDExMjJaGA85OTk5MTIzMTIzNTk1OVowEjEQ
+MA4GA1UEAxMHdW5rbm93bjCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEB
+AJt35fxcewH3/2pHiGoflmU3oQSTXqOBU74zwAy9vVoFTz5uKnkxKeQ9O15pKl+T
+OakwxxAFuGtnG3BxVczk0U7ersblQWAVPH9mG/QOwLi8VZ2F9EsFDsYuudXxJMS+
+97Zwfhhl7izPKzgjCB3dozO5naem+g6XAtallj+Js6I32Li5IJsvuJXHlpiGzr7B
+A+ng4xC77pc6r5t8P+qEh6u25a9CnZFsRF41XelkrTQF61UDUFonSN0ctvbyiVCA
++09mJKrDgl5tfOUaj2ZT2tDeyZGYDaFlwt+qjEgTdh2m0ZC0zX7L74iE6VzhB/co
+3Tfr5GH1Nl64u8ic2ET81L0CAwEAAaOBzDCByTAQBgNVHSUECTAHBgVngQUIATBS
+BgNVHREBAf8ESDBGpEQwQjEWMBQGBWeBBQIBDAtpZDowMDAwMTAxNDEQMA4GBWeB
+BQICDAVzd3RwbTEWMBQGBWeBBQIDDAtpZDoyMDI0MDEyNTAMBgNVHRMBAf8EAjAA
+MCIGA1UdCQQbMBkwFwYFZ4EFAhAxDjAMDAMyLjACAQACAgC3MB8GA1UdIwQYMBaA
+FC9tUdt3Nuy5Lc3iJ4AxyLHsw4e0MA4GA1UdDwEB/wQEAwIFIDANBgkqhkiG9w0B
+AQsFAAOCAYEAJWui49g2rrL5iLK6ZeJ5XL+d20Bm1e5PtEjFSEovgIEb9NN0C+Ei
+Qwp/fCZqlw/MeHj9yRzfvkx78fvSIKodUL5rG0LnCVMdlLfyAI26ax80JckBB3ZP
+eKLmR3nPMzPny7Ai72WJOfqh3WTlp6WWQwrhqaML4ZWKmja7d8pPOOMkkTCcm3vP
+m4sG0CJOGkKTMlhX7Di+1v3ZD261gbvNOGllPz7t2L1auqrJHS2g3RvJuBqP+Ziu
+/91VCD+cRgFT865k6U4NGfJ2b4oo6FYDXVKN1CZM9+k9Ir7ef1E2ezc77TjZIKRJ
+ZY2JJvCzk0ZN7ivJ+eh6vzbO7VScfURw2lgH+ZaHu+Y4qpPZgEbH9MzKZRj8+Bj/
+sy7fihk1sdWTvKYdaoLcAueDsAtM8c8kYcxRa9O51iZcHVwNd7Z++e8LYoTJCI4b
+o946nvvdgb4/t4ou+TWysfqvrlwz0D1UpSuF58ue0P/oUTP+duLB+42BRk3M1//i
+eEDtsEykcJnH
 -----END CERTIFICATE-----
-I0521 11:22:59.356277   51396 grpc_verifier.go:623]      Pushing AES
-I0521 11:22:59.356561   51396 grpc_verifier.go:652]      Hash of AES Key:  bZeQ9G0KuKpHVwfZuobcMf7tL/ViU1maVaJCAY+QjfU
-I0521 11:22:59.759718   51396 grpc_verifier.go:720]      Verification bZeQ9G0KuKpHVwfZuobcMf7tL/ViU1maVaJCAY+QjfU
-I0521 11:22:59.759874   51396 grpc_verifier.go:725] =============== PullRSAKey ===============
-I0521 11:23:00.892628   51396 grpc_verifier.go:755]      Attestation of Unrestricted Signing Key Verified
-I0521 11:23:00.892881   51396 grpc_verifier.go:773]      Unrestricted key parameter matches template
-I0521 11:23:00.893132   51396 grpc_verifier.go:790]      uakPub PEM 
+
+2026/09/10 10:13:47 EK Certificate: 
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number: 2405 (0x0965)
+        Signature Algorithm: SHA256-RSA
+        Issuer: CN=swtpm-localca
+        Validity
+            Not Before: Sep 10 14:11:22 2026 UTC
+            Not After : Dec 31 23:59:59 9999 UTC
+        Subject: CN=unknown
+        Subject Public Key Info:
+            Public Key Algorithm: RSA
+                Public-Key: (2048 bit)
+                Modulus:
+                    9b:77:e5:fc:5c:7b:01:f7:ff:6a:47:88:6a:1f:96:
+                    65:37:a1:04:93:5e:a3:81:53:be:33:c0:0c:bd:bd:
+                    5a:05:4f:3e:6e:2a:79:31:29:e4:3d:3b:5e:69:2a:
+                    5f:93:39:a9:30:c7:10:05:b8:6b:67:1b:70:71:55:
+                    cc:e4:d1:4e:de:ae:c6:e5:41:60:15:3c:7f:66:1b:
+                    f4:0e:c0:b8:bc:55:9d:85:f4:4b:05:0e:c6:2e:b9:
+                    d5:f1:24:c4:be:f7:b6:70:7e:18:65:ee:2c:cf:2b:
+                    38:23:08:1d:dd:a3:33:b9:9d:a7:a6:fa:0e:97:02:
+                    d6:a5:96:3f:89:b3:a2:37:d8:b8:b9:20:9b:2f:b8:
+                    95:c7:96:98:86:ce:be:c1:03:e9:e0:e3:10:bb:ee:
+                    97:3a:af:9b:7c:3f:ea:84:87:ab:b6:e5:af:42:9d:
+                    91:6c:44:5e:35:5d:e9:64:ad:34:05:eb:55:03:50:
+                    5a:27:48:dd:1c:b6:f6:f2:89:50:80:fb:4f:66:24:
+                    aa:c3:82:5e:6d:7c:e5:1a:8f:66:53:da:d0:de:c9:
+                    91:98:0d:a1:65:c2:df:aa:8c:48:13:76:1d:a6:d1:
+                    90:b4:cd:7e:cb:ef:88:84:e9:5c:e1:07:f7:28:dd:
+                    37:eb:e4:61:f5:36:5e:b8:bb:c8:9c:d8:44:fc:d4:
+                    bd
+                Exponent: 65537 (0x10001)
+        X509v3 extensions:
+            X509v3 Extended Key Usage:
+                EK Certificate
+            X509v3 Subject Alternative Name: critical
+                TPM Manufacturer: id:00001014
+                TPM Model: swtpm
+                TPM Version: id:20240125
+            X509v3 Basic Constraints: critical
+                CA:FALSE
+            X509v3 Subject Directory Attributes:
+                TPM Specification: Family: 2.0, Level: 0, Revision: 183
+            X509v3 Authority Key Identifier:
+                2F:6D:51:DB:77:36:EC:B9:2D:CD:E2:27:80:31:C8:B1:EC:C3:87:B4
+            X509v3 Key Usage: critical
+                Key Encipherment
+    Signature Algorithm: SHA256-RSA
+         25:6b:a2:e3:d8:36:ae:b2:f9:88:b2:ba:65:e2:79:5c:bf:9d:
+         db:40:66:d5:ee:4f:b4:48:c5:48:4a:2f:80:81:1b:f4:d3:74:
+         0b:e1:22:43:0a:7f:7c:26:6a:97:0f:cc:78:78:fd:c9:1c:df:
+         be:4c:7b:f1:fb:d2:20:aa:1d:50:be:6b:1b:42:e7:09:53:1d:
+         94:b7:f2:00:8d:ba:6b:1f:34:25:c9:01:07:76:4f:78:a2:e6:
+         47:79:cf:33:33:e7:cb:b0:22:ef:65:89:39:fa:a1:dd:64:e5:
+         a7:a5:96:43:0a:e1:a9:a3:0b:e1:95:8a:9a:36:bb:77:ca:4f:
+         38:e3:24:91:30:9c:9b:7b:cf:9b:8b:06:d0:22:4e:1a:42:93:
+         32:58:57:ec:38:be:d6:fd:d9:0f:6e:b5:81:bb:cd:38:69:65:
+         3f:3e:ed:d8:bd:5a:ba:aa:c9:1d:2d:a0:dd:1b:c9:b8:1a:8f:
+         f9:98:ae:ff:dd:55:08:3f:9c:46:01:53:f3:ae:64:e9:4e:0d:
+         19:f2:76:6f:8a:28:e8:56:03:5d:52:8d:d4:26:4c:f7:e9:3d:
+         22:be:de:7f:51:36:7b:37:3b:ed:38:d9:20:a4:49:65:8d:89:
+         26:f0:b3:93:46:4d:ee:2b:c9:f9:e8:7a:bf:36:ce:ed:54:9c:
+         7d:44:70:da:58:07:f9:96:87:bb:e6:38:aa:93:d9:80:46:c7:
+         f4:cc:ca:65:18:fc:f8:18:ff:b3:2e:df:8a:19:35:b1:d5:93:
+         bc:a6:1d:6a:82:dc:02:e7:83:b0:0b:4c:f1:cf:24:61:cc:51:
+         6b:d3:b9:d6:26:5c:1d:5c:0d:77:b6:7e:f9:ef:0b:62:84:c9:
+         08:8e:1b:a3:de:3a:9e:fb:dd:81:be:3f:b7:8a:2e:f9:35:b2:
+         b1:fa:af:ae:5c:33:d0:3d:54:a5:2b:85:e7:cb:9e:d0:ff:e8:
+         51:33:fe:76:e2:c1:fb:8d:81:46:4d:cc:d7:ff:e2:78:40:ed:
+         b0:4c:a4:70:99:c7
+
+2026/09/10 10:13:47 ======= EKPub ========
+2026/09/10 10:13:47 Name 000b652dfc13787c8cbde823607c0d99f485bfb4733c0e92410f7fd4051aa2b30c0f
+2026/09/10 10:13:47 EK public 
 -----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvE42BY3yu/ogci+1PIAG
-4P39tkIyOGInFOMKJ680Csth/bcB/UXfXRq4OPVudWukwy1GwYLx2IM/l5F3BQW9
-zbloW69S504l4KoRJ5OxV+Ztf91JfRo8UkffNPvpyXgJU1ZFBrqs5XVRno8LFCEU
-yi89MBb6DaCbEgE2/qcf4zHs4BNle0VREz+Ag7Ph8MAhNfrethbSDt1T8X+N/aeg
-A/+Gd48Hzw00E/uV1ypGryrd8kUumrgt4zbt5OiRDoSsUirQQwnQP55DOus7eBME
-3vjXXmMY0bth8PaJERmABwEbcCtG1AK83z8XTytNu+9xOFW3seLth1BVMKQh4vPe
-lwIDAQAB
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAm3fl/Fx7Aff/akeIah+W
+ZTehBJNeo4FTvjPADL29WgVPPm4qeTEp5D07XmkqX5M5qTDHEAW4a2cbcHFVzOTR
+Tt6uxuVBYBU8f2Yb9A7AuLxVnYX0SwUOxi651fEkxL73tnB+GGXuLM8rOCMIHd2j
+M7mdp6b6DpcC1qWWP4mzojfYuLkgmy+4lceWmIbOvsED6eDjELvulzqvm3w/6oSH
+q7blr0KdkWxEXjVd6WStNAXrVQNQWidI3Ry29vKJUID7T2YkqsOCXm185RqPZlPa
+0N7JkZgNoWXC36qMSBN2HabRkLTNfsvviITpXOEH9yjdN+vkYfU2Xri7yJzYRPzU
+vQIDAQAB
 -----END PUBLIC KEY-----
-I0521 11:23:00.893303   51396 grpc_verifier.go:795]      SigningKey Test Signature hLZQPjLCzWBXlhDSraZQSz3TjBBl52OykCRnCSR3oj2Q22l6F9TD8ajvkZcfRrcTBhPisPSfRPx9M31LfbxwXlfjlVChwkncPjtH7fVwWtnH4fhBRY9AUkRsUzwflm4n3YZ9KGIG++BZRGhIBaCdA/+mIVwKPjM6ri2isxHuOGw34XoHMI195iCplU6LX4Cas3P1T3XRkwILsckSJKUXVooh37fQ3VhgT1hdxeDQDoIGaWH/qlkqfFvg5SpqH9vvKI6cC3WnwiVLecG+Ja2xRFwR3Kb33zVR20oKTgt0RXMITDEWAP/CcYjIlFR5rpnZ9frkfUdw8+UIDwfU+6jc2g==
-I0521 11:23:00.893467   51396 grpc_verifier.go:796]      Data to verify signature with: 369c327d-ad1f-401c-aa91-d9b0e69bft67
-I0521 11:23:00.893922   51396 grpc_verifier.go:803]      Test Signature Verified
-I0521 11:23:00.894155   51396 grpc_verifier.go:824]      Unrestricted RSA Public key parameters matches AttestedCertifyInfo  true
-I0521 11:23:00.894341   51396 grpc_verifier.go:839]      Issuing certificate with serialNumber 108452
-I0521 11:23:00.898631   51396 grpc_verifier.go:874]      X509 issued by Verifier for unrestricted Key: 
------BEGIN CERTIFICATE-----
-MIID2jCCAsKgAwIBAgIDAaekMA0GCSqGSIb3DQEBCwUAMFcxCzAJBgNVBAYTAlVT
-MQ8wDQYDVQQKDAZHb29nbGUxEzARBgNVBAsMCkVudGVycHJpc2UxIjAgBgNVBAMM
-GUVudGVycHJpc2UgU3Vib3JkaW5hdGUgQ0EwHhcNMjMwNTIxMTUyMzAwWhcNMjMw
-NTIyMTUyMzAwWjCBiTELMAkGA1UEBhMCVVMxEzARBgNVBAgTCkNhbGlmb3JuaWEx
-FjAUBgNVBAcTDU1vdW50YWluIFZpZXcxEDAOBgNVBAoTB0FjbWUgQ28xEzARBgNV
-BAsTCkVudGVycHJpc2UxJjAkBgNVBAMTHW10bHMsc2VydmVyLmFub3RoZXJkb21h
-aW4uY29tMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvE42BY3yu/og
-ci+1PIAG4P39tkIyOGInFOMKJ680Csth/bcB/UXfXRq4OPVudWukwy1GwYLx2IM/
-l5F3BQW9zbloW69S504l4KoRJ5OxV+Ztf91JfRo8UkffNPvpyXgJU1ZFBrqs5XVR
-no8LFCEUyi89MBb6DaCbEgE2/qcf4zHs4BNle0VREz+Ag7Ph8MAhNfrethbSDt1T
-8X+N/aegA/+Gd48Hzw00E/uV1ypGryrd8kUumrgt4zbt5OiRDoSsUirQQwnQP55D
-Ous7eBME3vjXXmMY0bth8PaJERmABwEbcCtG1AK83z8XTytNu+9xOFW3seLth1BV
-MKQh4vPelwIDAQABo3wwejAOBgNVHQ8BAf8EBAMCB4AwDwYDVR0lBAgwBgYEVR0l
-ADAMBgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFLe6sAKh5740xsEFXGZ45btTXaFU
-MCgGA1UdEQQhMB+CHW10bHMsc2VydmVyLmFub3RoZXJkb21haW4uY29tMA0GCSqG
-SIb3DQEBCwUAA4IBAQApFJSlAzD3UNPdTMVLMLNPIpWqs7kzGwPTzQYIomSTMtMg
-Ova5Ih6TSUps6M16ytG4FQw/J+yBcqf8aOqTOj7mtGXkWx97UsnqOG6TlGlRyH/1
-pcCEhvsXuSkz1gnMqVCzBibhLLVipjR2Z3bzkbnHinYl/wsD3qzSoWhT0iDOZngP
-dgzjdPmNdWHhCbfKCQKq3rWdlYaySq6Hsgxf43jlVpwn6DvUJLZCvlM2UjWYKi3h
-lAuQ13DiVASWMfuk8YA/NM50wE3Rr7Pq0AXubMLReebuaci2YzFAHkxr9PMZJl8X
-nb+L3iVa1/DVELR5ZKOJhr6OegKFjR+KSdPO5uGK
------END CERTIFICATE-----
-I0521 11:23:00.898695   51396 grpc_verifier.go:876]      Pulled Signing Key  complete 369c327d-ad1f-401c-aa91-d9b0e69bft67
+
+```
+
+### Create new AttestationKey
+
+Creates a new AK and write the public PEM file as well as the tpm keyfile
+
+```bash
+go run get_ak/main.go -akKeyFile=output/ak.pem -akPubFile=output/akpub.pem -tpm-path=127.0.0.1:2321
+
+2026/09/10 10:14:37 ======= Init  ========
+2026/09/10 10:14:37 ======= EKPub ========
+2026/09/10 10:14:37 primaryKey Name 000b652dfc13787c8cbde823607c0d99f485bfb4733c0e92410f7fd4051aa2b30c0f
+2026/09/10 10:14:37 AK Name 000b0cc20fb86864165581cf9b7e94231b5d5ced7ba69899ad8b4079f6962addc66a
+2026/09/10 10:14:37 RSA AK Key 
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAz4Tvc5obDde8kJdz8S0g
+PitUHFETvvp9mw4jRAgRk3SSRGyJQZeQe8fKhf595Vz+nNsxnL5rQ/DnKURzaPeG
+hu9jhG8HbBAWZI1pXFVs8gKVJI9rl/KVB/iCzs41MK1rhqPQ5d8ca5Kf3KxIYEW0
+dzv2IDUUh0LlIRZifSyGveI/dhZSt4jEq0CjckaNzmP7kMSaKCj5FMgBDc/d40Xp
+rbuTmL6Jv+YVAuHSsmWg4es4q0LsSsEyDVTKe6TNMMLNl4+VxvhFixkOOIUY2ukt
+ZBU00kISP9VbpcLy8Apk59ZEMY2I48U1NYr91kND4wFSUIJlZek2ze/w/dEnxe/R
+WwIDAQAB
+-----END PUBLIC KEY-----
+```
+
+### MakeCredential
+
+Read the EKPEM and AKPEM and execute MakeCredential
+
+Write the encryptedSecret and CredentialBlob to file
+
+```bash
+go run make_credential/main.go -akPubFile output/akpub.pem \
+   -credentialBlobFile output/credentialblob.bin -ekPubFile output/ekpub.pem \
+    -encryptedSecret output/encryptedSecret.bin -secret somerandomsecret
+
+2026/09/10 10:15:38 key Primary Name: 000b652dfc13787c8cbde823607c0d99f485bfb4733c0e92410f7fd4051aa2b30c0f
+2026/09/10 10:15:38 key Name: 000b0cc20fb86864165581cf9b7e94231b5d5ced7ba69899ad8b4079f6962addc66a
+2026/09/10 10:15:38 CredentialBLob 0020fbb8676ed8fa47ef5e9fd3ca0e4be5f56385978e317e1cb7d52b5c232c5714a538f8350d91cbdc0781dda08c4ef32f0f4097
+```
+
+### ActivateCredential
+
+Read the EK,AK TPM Pem file, encryptedSecret and credentialblob and extract the secret
+
+
+```bash
+go run activate_credential/main.go  -akKeyFile output/ak.pem \
+   -credentialBlobFile output/credentialblob.bin \
+   -encryptedSecret output/encryptedSecret.bin -tpm-path 127.0.0.1:2321
+
+somerandomsecret
+```
+
+### Quote
+
+Request a Quote over pcr=23 and a secret. Write the signature and quote to file
+
+```bash
+go run quote/main.go -akKeyFile output/ak.pem -pcr 23 \
+   -quotedFile output/quoted.bin -quotedSignatureFile output/quotedsignature.bin \
+   -secret "meet me at..." -tpm-path "127.0.0.1:2321"
+
+2026/09/10 10:18:59 attestation secret:   [meet me at...]
+2026/09/10 10:18:59 signature: K+noEKqBTBlKu46y/BNR8lsIIKh0pq+wwNiTGDAf1oMOemfY96pLPT5SojSB6PfPaYmraW+h4uDeIFdYnvy6I05JxgqdSM2gM/QszSmv4LRmzrW5/0BnOU6Tb7FNs0cVOn15jiq07mMEQyAc/utb2Dq8MNMv+9EmkCphJp9rg29pxKJQeZyLwxF8WPGf5G5PeroiO+bd84oSLZPD4QU30uvphqYfayg8RuUWMsXlTM2Ytblk1xwzXF+zwQrU6U5lA2UopNbMRXa1qqB7z2frI1VUntZz5fkJCM/6LVb5cqMEkKl51iWEtRcmeWhVuTJL1+ZWCLzpSWN0gkUnLY6SNg==
+2026/09/10 10:18:59 verified
+```
+
+
+### QuoteVerify
+
+Verfiy the quote covers pcr23 and includes the nonce
+
+```bash
+2026/09/10 10:19:34 key Primary Name: 000b652dfc13787c8cbde823607c0d99f485bfb4733c0e92410f7fd4051aa2b30c0f
+2026/09/10 10:19:34 key Name: 000b0cc20fb86864165581cf9b7e94231b5d5ced7ba69899ad8b4079f6962addc66a
+2026/09/10 10:19:34 attestation secret:   [meet me at...]
+2026/09/10 10:19:34 signature: K+noEKqBTBlKu46y/BNR8lsIIKh0pq+wwNiTGDAf1oMOemfY96pLPT5SojSB6PfPaYmraW+h4uDeIFdYnvy6I05JxgqdSM2gM/QszSmv4LRmzrW5/0BnOU6Tb7FNs0cVOn15jiq07mMEQyAc/utb2Dq8MNMv+9EmkCphJp9rg29pxKJQeZyLwxF8WPGf5G5PeroiO+bd84oSLZPD4QU30uvphqYfayg8RuUWMsXlTM2Ytblk1xwzXF+zwQrU6U5lA2UopNbMRXa1qqB7z2frI1VUntZz5fkJCM/6LVb5cqMEkKl51iWEtRcmeWhVuTJL1+ZWCLzpSWN0gkUnLY6SNg==
+2026/09/10 10:19:34 verified
+```
+
+### Make a new key and certify it with AK
+
+Generate a new key and write the TPMPEM key as well as the regular ECC PublicKey to file
+
+```bash
+go run make_key/main.go -newKeyPubPEM=output/nkpub.pem -akKeyFile output/ak.pem \
+   -akPubFile output/akpub.pem -newKeyFile output/nk.pem \
+   -tpm-path "127.0.0.1:2321"
+
+2026/09/10 10:22:20 ======= Init  ========
+2026/09/10 10:22:20 ======= EKPub ========
+2026/09/10 10:22:20 primaryKey Name 000bfb928ffe9bbc45ee110170c902d11b48305f9a0599ea5aef9d0d3274d1b481ab
+2026/09/10 10:22:20 NewKey Name 000b99c8162258fa77e3ba0c8b716d090808c28cbfc4d2704512071c32b9d458aa59
+2026/09/10 10:22:20 ECC NewKey Key 
+-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEvTDXFD9PW6jLD7DQPDWxzwd4MbGQ
+SDXz33D15VwRBCKHIkz7AtRsAHHxnKEAigwksJc0IDm4J0rok5n8WS0hoA==
+-----END PUBLIC KEY-----
+
+2026/09/10 10:22:20 Certify Response of Signature 
+GqamO8OHV4llNlbS8PF0Ft4FFQjb8DghX772C8X/ei32ihv7VmyH9IZXekxOJpncCvgxnvtUk0LY2Ha60RElY5EB5WvOluK2s4AJ/zqauIXm9aXyeM9d6nRszd1k3gkW41SQFIWvGcKydHgQL5OgXXVSoO7HpDiC1blHFY0Y3pQRui3/jMaJTrsjiRuyz73SfSDm6kjbDQKSiKfwVmN82uf1c8hv4LBL16ScDIu+H2xv0W7hMsZr3T1+uFGha7E+s8oSqo+b5dyLcipJUg79deE4i2MLUkOFlj40fMPy5mqvRd1hb87LTQMMa37/o47LNsaiZhi2TjQmusjTqmOKgQ==
+2026/09/10 10:22:20 Certify Response for Key Name 000b99c8162258fa77e3ba0c8b716d090808c28cbfc4d2704512071c32b9d458aa59
+2026/09/10 10:22:20 Certify Extra Data foooo
+2026/09/10 10:22:20 Attestation Verified
+```
+
+
+### Verify New key Certification by AK
+
+Read the AK, EK the certifiction signature, the new ECC PEM key output/nkpub.pem  and verify
+
+note the new key "name" is the one that is certified by the ak and matches the derived name from nkpub.pem name
+
+```bash
+go run verify_key/main.go -akPubFile output/akpub.pem -newKeyPubPEM=output/nkpub.pem -ekPubFile "output/ekpub.pem" \
+   -certificationSignature output/certifysignature.bin \
+   -certifyInfoFile output/certify.bin -secret "meet me at..." 
+
+2026/09/10 10:23:20 key Primary Name: 000b652dfc13787c8cbde823607c0d99f485bfb4733c0e92410f7fd4051aa2b30c0f
+2026/09/10 10:23:20 AK key Name: 000b0cc20fb86864165581cf9b7e94231b5d5ced7ba69899ad8b4079f6962addc66a
+2026/09/10 10:23:20 Derived Name 000b99c8162258fa77e3ba0c8b716d090808c28cbfc4d2704512071c32b9d458aa59
+2026/09/10 10:23:20 Certify Response of Signature 
+GqamO8OHV4llNlbS8PF0Ft4FFQjb8DghX772C8X/ei32ihv7VmyH9IZXekxOJpncCvgxnvtUk0LY2Ha60RElY5EB5WvOluK2s4AJ/zqauIXm9aXyeM9d6nRszd1k3gkW41SQFIWvGcKydHgQL5OgXXVSoO7HpDiC1blHFY0Y3pQRui3/jMaJTrsjiRuyz73SfSDm6kjbDQKSiKfwVmN82uf1c8hv4LBL16ScDIu+H2xv0W7hMsZr3T1+uFGha7E+s8oSqo+b5dyLcipJUg79deE4i2MLUkOFlj40fMPy5mqvRd1hb87LTQMMa37/o47LNsaiZhi2TjQmusjTqmOKgQ==
+2026/09/10 10:23:20 Certify CreationObjectName 000b99c8162258fa77e3ba0c8b716d090808c28cbfc4d2704512071c32b9d458aa59
+2026/09/10 10:23:20 Certify Extra Data foooo
+2026/09/10 10:23:20 Attestation Verified
 ```
