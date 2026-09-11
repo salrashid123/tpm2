@@ -25,6 +25,9 @@ openssl x509 -in ECcert.bin -inform DER -noout -text
 
 ```bash
 export TPM2TOOLS_TCTI="swtpm:port=2321"
+rm -rf output/
+mkdir output/
+
 go run get_ek/main.go  -ekCertFile=output/ek.cert -ekPubFile=output/ekpub.pem -tpm-path=127.0.0.1:2321
 
 go run get_ak/main.go -akKeyFile=output/ak.pem -akPubFile=output/akpub.pem -tpm-path=127.0.0.1:2321
@@ -47,7 +50,7 @@ go run quote_verify/main.go -akPubFile output/akpub.pem \
 
 go run make_key/main.go  -akKeyFile output/ak.pem \
    -akPubFile output/akpub.pem -newKeyFile output/nk.pem \
-   -tpm-path "127.0.0.1:2321"
+   -tpm-path "127.0.0.1:2321"  -secret "meet me at..." 
 
 go run verify_key/main.go -akPubFile output/akpub.pem -ekPubFile "output/ekpub.pem" \
    -certificationSignature output/certifysignature.bin \

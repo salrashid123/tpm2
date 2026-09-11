@@ -33,6 +33,7 @@ var (
 	akKeyFile              = flag.String("akKeyFile", "output/ak.pem", "file to write the ekpub")
 	akPubFile              = flag.String("akPubFile", "output/akpub.pem", "file to write the akpub")
 	certifyInfoFile        = flag.String("certifyInfoFile", "output/certify.bin", "file to write the newkey")
+	secret                 = flag.String("secret", "meet me at...", "secret")
 	certificationSignature = flag.String("certificationSignature", "output/certifysignature.bin", "file to write the newkey")
 	eccTemplate            = tpm2.TPMTPublic{
 		Type:    tpm2.TPMAlgECC,
@@ -248,6 +249,8 @@ func main() {
 		}
 		_, _ = flushContextCmd.Execute(rwr)
 	}()
+
+	// certify the new key
 	certifyResponse, err := tpm2.Certify{
 		ObjectHandle: tpm2.NamedHandle{
 			Handle: nkKeyResponse.ObjectHandle,
@@ -258,31 +261,31 @@ func main() {
 			Name:   akKey.Name,
 		},
 		QualifyingData: tpm2.TPM2BData{
-			Buffer: []byte("foooo"),
+			Buffer: []byte(*secret),
 		},
 	}.Execute(rwr)
 	if err != nil {
 		log.Fatalf("can't get Certify %v", err)
 	}
 
-	crs, err := certifyResponse.Signature.Signature.RSASSA()
+	ceritfySignature, err := certifyResponse.Signature.Signature.RSASSA()
 	if err != nil {
 		log.Fatalf("can't certifyResponse signature %v", err)
 	}
-	log.Printf("Certify Response of Signature \n%v\n", base64.StdEncoding.EncodeToString(crs.Sig.Buffer))
+	log.Printf("Certify Response of Signature \n%v\n", base64.StdEncoding.EncodeToString(ceritfySignature.Sig.Buffer))
 
-	cr, err := certifyResponse.CertifyInfo.Contents()
+	certifyAttest, err := certifyResponse.CertifyInfo.Contents()
 	if err != nil {
 		log.Fatalf("can't certifyResponse contents %v", err)
 	}
 
-	ca, err := cr.Attested.Certify()
+	certifyInfo, err := certifyAttest.Attested.Certify()
 	if err != nil {
 		log.Fatalf("can't read certifyinfo %v", err)
 	}
 
-	log.Printf("Certify Response for Key Name %s\n", hex.EncodeToString(ca.Name.Buffer))
-	log.Printf("Certify Extra Data %s\n", string(cr.ExtraData.Buffer))
+	log.Printf("Certify Response for Key Name %s\n", hex.EncodeToString(certifyInfo.Name.Buffer))
+	log.Printf("Certify Extra Data %s\n", string(certifyAttest.ExtraData.Buffer))
 
 	b := tpm2.Marshal(certifyResponse.CertifyInfo)
 	if err != nil {
@@ -322,7 +325,7 @@ func main() {
 		return
 	}
 
-	if err := rsa.VerifyPKCS1v15(rsaPubA, crypto.SHA256, hsh.Sum(nil), crs.Sig.Buffer); err != nil {
+	if err := rsa.VerifyPKCS1v15(rsaPubA, crypto.SHA256, hsh.Sum(nil), ceritfySignature.Sig.Buffer); err != nil {
 		log.Fatalf("VerifyPKCS1v15 failed: %v", err)
 	}
 	log.Printf("Attestation Verified")

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
@@ -10,16 +11,12 @@ import (
 	"encoding/pem"
 	"flag"
 	"fmt"
-	"io"
 	"log"
-	"net"
 	"os"
-	"slices"
 
 	"github.com/google/go-tpm-tools/simulator"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
-	"github.com/google/go-tpm/tpmutil"
 )
 
 var (
@@ -93,16 +90,6 @@ var (
 		),
 	}
 )
-
-var TPMDEVICES = []string{"/dev/tpm0", "/dev/tpmrm0"}
-
-func OpenTPM(path string) (io.ReadWriteCloser, error) {
-	if slices.Contains(TPMDEVICES, path) {
-		return tpmutil.OpenTPM(path)
-	} else {
-		return net.Dial("tcp", path)
-	}
-}
 
 func main() {
 	flag.Parse()
@@ -244,54 +231,58 @@ func main() {
 		return
 	}
 
-	log.Printf("Derived Name %s\n", hex.EncodeToString(nkpname.Buffer))
+	log.Printf("Derived Name  for the NewKey %s\n", hex.EncodeToString(nkpname.Buffer))
 
-	cfb, err := os.ReadFile(*certifyInfoFile)
+	certifyInfoBytes, err := os.ReadFile(*certifyInfoFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, " error reading tpmPublicKeyFile : %v", err)
 		return
 	}
 
-	csb, err := os.ReadFile(*certificationSignature)
+	ceritySignatureBytes, err := os.ReadFile(*certificationSignature)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, " error reading tpmPublicKeyFile : %v", err)
 		return
 	}
-	cs, err := tpm2.Unmarshal[tpm2.TPMTSignature, *tpm2.TPMTSignature](csb)
+	certificySignature, err := tpm2.Unmarshal[tpm2.TPMTSignature, *tpm2.TPMTSignature](ceritySignatureBytes)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, " error reading tpmPublicKeyFile : %v", err)
 		return
 	}
 
-	crs, err := cs.Signature.RSASSA()
+	certifyRSASignature, err := certificySignature.Signature.RSASSA()
 	if err != nil {
 		log.Fatalf("can't certifyResponse signature %v", err)
 	}
-	log.Printf("Certify Response of Signature \n%v\n", base64.StdEncoding.EncodeToString(crs.Sig.Buffer))
+	log.Printf("Certify Response of Signature \n%v\n", base64.StdEncoding.EncodeToString(certifyRSASignature.Sig.Buffer))
 
-	ci, err := tpm2.Unmarshal[tpm2.TPM2BAttest, *tpm2.TPM2BAttest](cfb)
+	ceritifyAttestation2B, err := tpm2.Unmarshal[tpm2.TPM2BAttest, *tpm2.TPM2BAttest](certifyInfoBytes)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, " error reading tpmPublicKeyFile : %v", err)
 		return
 	}
 
-	ca, err := ci.Contents()
+	cerificationAttest, err := ceritifyAttestation2B.Contents()
 	if err != nil {
 		log.Fatalf("can't read certifyinfo %v", err)
 	}
 
-	cri, err := ca.Attested.Certify()
+	cerificationInfo, err := cerificationAttest.Attested.Certify()
 	if err != nil {
 		log.Fatalf("can't read certifyinfo %v", err)
 	}
 
-	log.Printf("Certify CreationObjectName %s\n", hex.EncodeToString(cri.Name.Buffer))
+	log.Printf("Certify CreationObjectName %s\n", hex.EncodeToString(cerificationInfo.Name.Buffer))
 
-	log.Printf("Certify Extra Data %s\n", string(ca.ExtraData.Buffer))
+	log.Printf("Certify Extra Data %s\n", string(cerificationAttest.ExtraData.Buffer))
+
+	if !bytes.Equal(cerificationAttest.ExtraData.Buffer, []byte(*secret)) {
+		log.Fatalf("error verifying attestation extra data")
+	}
 	hsh := crypto.SHA256.New()
-	hsh.Write(ci.Bytes())
+	hsh.Write(ceritifyAttestation2B.Bytes())
 
-	if err := rsa.VerifyPKCS1v15(rsaPubA, crypto.SHA256, hsh.Sum(nil), crs.Sig.Buffer); err != nil {
+	if err := rsa.VerifyPKCS1v15(rsaPubA, crypto.SHA256, hsh.Sum(nil), certifyRSASignature.Sig.Buffer); err != nil {
 		log.Fatalf("VerifyPKCS1v15 failed: %v", err)
 	}
 	log.Printf("Attestation Verified")

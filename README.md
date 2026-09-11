@@ -26,6 +26,7 @@ Also shown equivalent use of `go-tpm` library set.
 
 ### go library
 
+* [AEAD Encryption with Trusted Platform Module](https://github.com/salrashid123/tpmaead)
 * [TPM backed crypto/rand Reader](https://github.com/salrashid123/tpmrand)
 * [golang-jwt for Trusted Platform Module (TPM)](https://github.com/salrashid123/golang-jwt-tpm)
 * [Json Web Encryption (JWE) using TPM backed keys](https://github.com/salrashid123/jwe-tpm)
@@ -55,6 +56,7 @@ For authentication using TPM based keys to cloud providers
 
 ### TLS examples
 
+* [ACME Device Attestation and Certificate Enrollment for Trusted Plaform Module](https://github.com/salrashid123/device-attest-01)
 * [mTLS with TPM bound private key](https://github.com/salrashid123/go_tpm_https_embed)
 * [TPM based TLS using Attested Keys (experimental)](https://github.com/salrashid123/tls_ak)
 * [TPM One Time Password using TLS SessionKey](https://github.com/salrashid123/tls_tpm_one_time_password)

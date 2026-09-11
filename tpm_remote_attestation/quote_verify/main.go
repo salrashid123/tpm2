@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -10,16 +11,12 @@ import (
 	"encoding/pem"
 	"flag"
 	"fmt"
-	"io"
 	"log"
-	"net"
 	"os"
-	"slices"
 
 	"github.com/google/go-tpm-tools/simulator"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
-	"github.com/google/go-tpm/tpmutil"
 )
 
 var (
@@ -64,16 +61,6 @@ var (
 		),
 	}
 )
-
-var TPMDEVICES = []string{"/dev/tpm0", "/dev/tpmrm0"}
-
-func OpenTPM(path string) (io.ReadWriteCloser, error) {
-	if slices.Contains(TPMDEVICES, path) {
-		return tpmutil.OpenTPM(path)
-	} else {
-		return net.Dial("tcp", path)
-	}
-}
 
 func main() {
 	flag.Parse()
@@ -154,26 +141,30 @@ func main() {
 
 	log.Printf("key Name: %v\n", hex.EncodeToString(loadedAK.Name.Buffer))
 
-	ec, err := os.ReadFile(*quotedFile)
+	quoteBytes, err := os.ReadFile(*quotedFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, " error reading tpmPublicKeyFile : %v", err)
 		return
 	}
 
-	qs, err := os.ReadFile(*quotedSignatureFile)
+	quoteSignatureBytes, err := os.ReadFile(*quotedSignatureFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, " error reading tpmPublicKeyFile : %v", err)
 		return
 	}
 
-	q2, err := tpm2.Unmarshal[tpm2.TPMSAttest, *tpm2.TPMSAttest](ec)
+	quoteTPMSAttest, err := tpm2.Unmarshal[tpm2.TPMSAttest, *tpm2.TPMSAttest](quoteBytes)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	log.Printf("attestation secret:   [%s]", string(q2.ExtraData.Buffer))
+	log.Printf("attestation secret:   [%s]", string(quoteTPMSAttest.ExtraData.Buffer))
 
-	sig, err := tpm2.Unmarshal[tpm2.TPMTSignature](qs)
+	if !bytes.Equal(quoteTPMSAttest.ExtraData.Buffer, []byte(*secret)) {
+		log.Fatalf("error verifying attestation extra data")
+	}
+
+	sig, err := tpm2.Unmarshal[tpm2.TPMTSignature](quoteSignatureBytes)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -184,7 +175,7 @@ func main() {
 	}
 	log.Printf("signature: %s\n", base64.StdEncoding.EncodeToString(rsassa.Sig.Buffer))
 
-	digest := sha256.Sum256(ec)
+	digest := sha256.Sum256(quoteBytes)
 
 	if err := rsa.VerifyPKCS1v15(rsaPubA, crypto.SHA256, digest[:], rsassa.Sig.Buffer); err != nil {
 		log.Fatalf("Failed to verify signature: %v", err)
