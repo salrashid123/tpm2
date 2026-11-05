@@ -1,6 +1,5 @@
 from tpm2_pytss import *
-from tpm2_pytss.internal.templates import _ek
-# from tpm2_pytss.internal.templates import ek_rsa2048
+from tpm2_pytss.internal.templates import ek_rsa2048
 
 from tpm2_pytss.tsskey import TSSPrivKey
 
@@ -40,8 +39,7 @@ def setup_ek_session(ectx, ek_handle):
     ectx.trsess_set_attributes(session, TPMA_SESSION.ENCRYPT | TPMA_SESSION.DECRYPT)
     return session
 
-nv, tmpl = _ek.EK_RSA2048
-# tmpl = ek_rsa2048.template
+tmpl = ek_rsa2048.template
 
 inSensitive = TPM2B_SENSITIVE_CREATE()
 ek_handle, ek_pub, _, _, _ = ectx.create_primary(

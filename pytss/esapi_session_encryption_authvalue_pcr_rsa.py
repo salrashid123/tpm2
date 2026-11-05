@@ -1,5 +1,5 @@
 from tpm2_pytss import *
-from tpm2_pytss.internal.templates import _ek
+from tpm2_pytss.internal.templates import ek_rsa2048
 from tpm2_pytss.tsskey import TSSPrivKey
 
 from cryptography.hazmat.primitives import hashes
@@ -101,7 +101,7 @@ ectx.flush_context(primary1)
 
 ectx.tr_set_auth(rsaKeyHandle, "passwd")
 
-nv, tmpl = _ek.EK_RSA2048
+tmpl = ek_rsa2048.template
 
 inSensitive = TPM2B_SENSITIVE_CREATE()
 handle, outpub, _, _, _ = ectx.create_primary(

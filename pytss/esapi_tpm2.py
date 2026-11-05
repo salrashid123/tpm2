@@ -4,7 +4,7 @@ from tpm2_pytss import *
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
 
-from tpm2_pytss.internal.templates import _ek
+from tpm2_pytss.internal.templates import ek_rsa2048
 
 
 # tpm2_flushcontext -t && tpm2_flushcontext -s && tpm2_flushcontext -l  
